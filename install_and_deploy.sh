@@ -1,30 +1,76 @@
 #!/bin/bash
 
-# 更新系统包列表
-sudo apt update -y
+# 检查系统类型
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+else
+    echo "无法确定操作系统类型"
+    exit 1
+fi
 
-# 安装必要的包以允许 apt 通过 HTTPS 使用仓库
-sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
+# 安装Docker的函数
+install_docker() {
+    echo "开始安装Docker..."
 
-# 添加 Docker 的官方 GPG 密钥
-curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+    # 移除旧版本Docker（如果存在）
+    sudo apt-get remove docker docker-engine docker.io containerd runc || true
 
-# 设置 Docker 的稳定版仓库
-echo  "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    # 更新包索引
+    sudo apt-get update
 
-# 更新 apt 包索引
-sudo apt update -y
+    # 安装必要的系统工具
+    sudo apt-get install -y \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        gnupg \
+        lsb-release
 
-# 安装最新版本的 Docker CE 和 containerd
-sudo apt install -y docker-ce docker-ce-cli containerd.io
+    # 添加Docker官方GPG密钥
+    curl -fsSL https://download.docker.com/linux/${OS}/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
 
-# 安装 Docker Compose 插件
-sudo apt install -y docker-compose-plugin
+    # 设置稳定版仓库
+    echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/${OS} \
+        $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    # 更新apt包索引
+    sudo apt-get update
+
+    # 安装Docker Engine
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+
+    # 启动Docker服务
+    sudo systemctl start docker
+    sudo systemctl enable docker
+
+    # 验证Docker安装
+    if ! docker --version > /dev/null 2>&1; then
+        echo "Docker安装失败"
+        exit 1
+    fi
+
+    # 安装Docker Compose
+    sudo apt-get install -y docker-compose-plugin
+
+    echo "Docker安装完成"
+}
+
+# 主安装流程
+echo "开始安装流程..."
+
+# 检查是否已安装Docker
+if ! command -v docker &> /dev/null; then
+    install_docker
+else
+    echo "Docker已安装，跳过安装步骤"
+fi
 
 # 创建所需目录
-mkdir -p /data/docker/sillytavem
+sudo mkdir -p /data/docker/sillytavem
 
-# 写入 docker-compose.yaml 文件内容
+# 写入docker-compose.yaml文件内容
 cat <<EOF | sudo tee /data/docker/sillytavem/docker-compose.yaml
 version: '3.8'
 
@@ -51,7 +97,7 @@ EOF
 # 提示用户确认是否开启外网访问
 read -p "是否开启外网访问？(y/n): " enable_external_access
 
-# 生成随机的 username 和 password
+# 生成随机字符串的函数
 generate_random_string() {
     tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16
 }
@@ -61,12 +107,9 @@ if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
     username=$(generate_random_string)
     password=$(generate_random_string)
 
-    # 创建 config 文件
-    mkdir -p /data/docker/sillytavem/config
+    # 创建config目录和配置文件
+    sudo mkdir -p /data/docker/sillytavem/config
     cat <<EOF | sudo tee /data/docker/sillytavem/config/config.yaml
-basicAuthUser:
-  username: $username
-  password: $password
 dataRoot: ./data
 cardsCacheCapacity: 100
 listen: true
@@ -84,6 +127,9 @@ whitelist:
   - 127.0.0.1
   - 0.0.0.0
 basicAuthMode: true
+basicAuthUser:
+  username: $username
+  password: $password
 enableCorsProxy: false
 requestProxy:
   enabled: false
@@ -153,18 +199,29 @@ claude:
 enableServerPlugins: false
 EOF
 
-    echo "已开启外网访问，用户名: $username, 密码: $password"
+    echo "已开启外网访问"
+    echo "用户名: $username"
+    echo "密码: $password"
 else
     echo "未开启外网访问，将使用默认配置。"
 fi
 
-# 改变目录至 /data/docker/sillytavem 并启动服务
+# 启动服务
 cd /data/docker/sillytavem
 sudo docker compose up -d
 
-# 获取外网IP
-public_ip=$(curl -sS https://api.ipify.org)
+# 检查服务是否成功启动
+if [ $? -eq 0 ]; then
+    # 获取外网IP
+    public_ip=$(curl -sS https://api.ipify.org)
+    echo "SillyTavern 已成功部署"
+    echo "访问地址: http://${public_ip}:8000"
+    if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
+        echo "用户名: ${username}"
+        echo "密码: ${password}"
+    fi
+else
+    echo "服务启动失败，请检查日志"
+    sudo docker compose logs
+fi
 
-echo "SillyTavern 已部署，可以通过 http://${public_ip}:8000 访问。"
-echo "用户名: ${username}"
-echo "密码: ${password}"
