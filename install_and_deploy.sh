@@ -50,6 +50,6 @@ EOF
 
 # 改变目录至 /data/docker/sillytavem 并启动服务
 cd /data/docker/sillytavem
-sudo docker-compose up -d
+sudo docker compose up -d
 
 echo "SillyTavern 已部署，可以通过 http://<your_server_ip>:8000 访问。"
