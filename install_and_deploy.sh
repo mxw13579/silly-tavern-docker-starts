@@ -135,7 +135,7 @@ EOF
 echo "请选择是否开启外网访问"
 while true; do
     echo -n "是否开启外网访问？(y/n): "
-    read -r response
+    read -r response </dev/tty
     case $response in
         [Yy]* )
             enable_external_access="y"
