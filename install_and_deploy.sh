@@ -9,17 +9,15 @@ else
     exit 1
 fi
 
-# 安装Docker的函数
-install_docker() {
-    echo "开始安装Docker..."
+# 安装Docker的函数 - 基于Debian/Ubuntu系统
+install_docker_debian() {
+    echo "在 Debian/Ubuntu 系统上安装 Docker..."
 
-    # 移除旧版本Docker（如果存在）
+    # 移除旧版本
     sudo apt-get remove docker docker-engine docker.io containerd runc || true
 
-    # 更新包索引
+    # 更新并安装依赖
     sudo apt-get update
-
-    # 安装必要的系统工具
     sudo apt-get install -y \
         apt-transport-https \
         ca-certificates \
@@ -28,18 +26,70 @@ install_docker() {
         lsb-release
 
     # 添加Docker官方GPG密钥
-    curl -fsSL https://download.docker.com/linux/${OS}/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
 
-    # 设置稳定版仓库
+    # 设置仓库
     echo \
-        "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/${OS} \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian \
         $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-    # 更新apt包索引
+    # 安装Docker
     sudo apt-get update
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+}
 
-    # 安装Docker Engine
-    sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+# 安装Docker的函数 - 基于CentOS/RHEL系统
+install_docker_centos() {
+    echo "在 CentOS/RHEL 系统上安装 Docker..."
+
+    # 移除旧版本
+    sudo yum remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
+
+    # 安装必要的工具
+    sudo yum install -y yum-utils
+
+    # 添加Docker仓库
+    sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+    # 安装Docker
+    sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+}
+
+# 安装Docker的函数 - 基于Fedora系统
+install_docker_fedora() {
+    echo "在 Fedora 系统上安装 Docker..."
+
+    # 移除旧版本
+    sudo dnf remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
+
+    # 添加Docker仓库
+    sudo dnf -y install dnf-plugins-core
+    sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+
+    # 安装Docker
+    sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+}
+
+# 主安装流程
+echo "检测系统类型..."
+
+# 检查是否已安装Docker
+if ! command -v docker &> /dev/null; then
+    case $OS in
+        debian|ubuntu)
+            install_docker_debian
+            ;;
+        centos|rhel)
+            install_docker_centos
+            ;;
+        fedora)
+            install_docker_fedora
+            ;;
+        *)
+            echo "不支持的操作系统: $OS"
+            exit 1
+            ;;
+    esac
 
     # 启动Docker服务
     sudo systemctl start docker
@@ -50,19 +100,6 @@ install_docker() {
         echo "Docker安装失败"
         exit 1
     fi
-
-    # 安装Docker Compose
-    sudo apt-get install -y docker-compose-plugin
-
-    echo "Docker安装完成"
-}
-
-# 主安装流程
-echo "开始安装流程..."
-
-# 检查是否已安装Docker
-if ! command -v docker &> /dev/null; then
-    install_docker
 else
     echo "Docker已安装，跳过安装步骤"
 fi
@@ -95,7 +132,28 @@ networks:
 EOF
 
 # 提示用户确认是否开启外网访问
-read -p "是否开启外网访问？(y/n): " enable_external_access
+echo "请选择是否开启外网访问"
+while true; do
+    echo -n "是否开启外网访问？(y/n): "
+    read -r response
+    case $response in
+        [Yy]* )
+            enable_external_access="y"
+            break
+            ;;
+        [Nn]* )
+            enable_external_access="n"
+            break
+            ;;
+        * )
+            echo "请输入 y 或 n"
+            ;;
+    esac
+done
+
+# 确保显示用户的选择
+echo "您选择了: $([ "$enable_external_access" = "y" ] && echo "开启" || echo "不开启")外网访问"
+
 
 # 生成随机字符串的函数
 generate_random_string() {
