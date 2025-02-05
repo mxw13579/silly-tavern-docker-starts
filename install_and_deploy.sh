@@ -1,5 +1,18 @@
 #!/bin/bash
 
+# 检测应该使用的 Docker Compose 命令
+detect_docker_compose_command() {
+    # 首先检查 docker compose 命令（新版本）
+    if docker compose version &> /dev/null; then
+        echo "docker compose"
+    # 然后检查 docker-compose 命令（旧版本）
+    elif docker-compose --version &> /dev/null; then
+        echo "docker-compose"
+    else
+        echo "none"
+    fi
+}
+
 # 检查是否具有sudo权限
 if ! command -v sudo &> /dev/null; then
     echo "需要sudo权限来安装Docker"
@@ -24,8 +37,6 @@ else
     echo "无法确定操作系统类型"
     exit 1
 fi
-
-
 
 # 安装Docker的函数 - Debian系统
 install_docker_debian() {
@@ -127,7 +138,6 @@ install_docker_suse() {
     sudo zypper install -y docker docker-compose
 }
 
-
 # 安装Docker的函数 - 基于Fedora系统
 install_docker_fedora() {
     echo "在 Fedora 系统上安装 Docker..."
@@ -176,7 +186,6 @@ if ! command -v docker &> /dev/null; then
             ;;
     esac
 
-
     # 启动Docker服务
     # Alpine 的特殊处理
     if [ "$OS" = "alpine" ]; then
@@ -186,8 +195,6 @@ if ! command -v docker &> /dev/null; then
         sudo systemctl start docker
         sudo systemctl enable docker
     fi
-
-
 
     # 验证Docker安装
     if ! docker --version > /dev/null 2>&1; then
@@ -202,6 +209,20 @@ if ! command -v docker &> /dev/null; then
 else
     echo "Docker已安装，跳过安装步骤"
 fi
+
+# 获取正确的 Docker Compose 命令
+DOCKER_COMPOSE_CMD=$(detect_docker_compose_command)
+
+if [ "$DOCKER_COMPOSE_CMD" = "none" ]; then
+    echo "未检测到 Docker Compose，正在安装..."
+    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    sudo chmod +x /usr/local/bin/docker-compose
+    sudo ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+    echo "Docker Compose 安装完成，重新运行脚本..."
+    exec "$0" "$@"
+fi
+
+echo "检测到 Docker Compose 命令: $DOCKER_COMPOSE_CMD"
 
 # 创建所需目录
 sudo mkdir -p /data/docker/sillytavem
@@ -388,13 +409,13 @@ fi
 # 检查服务是否已运行并重启
 cd /data/docker/sillytavem
 
-if sudo docker compose ps | grep -q "Up"; then
+if sudo $DOCKER_COMPOSE_CMD ps | grep -q "Up"; then
     echo "检测到服务正在运行，正在重启..."
-    sudo docker compose stop
-    sudo docker compose up -d
+    sudo $DOCKER_COMPOSE_CMD stop
+    sudo $DOCKER_COMPOSE_CMD up -d
 else
     echo "服务未运行，正在启动..."
-    sudo docker compose up -d
+    sudo $DOCKER_COMPOSE_CMD up -d
 fi
 
 # 检查服务是否成功启动
@@ -409,6 +430,5 @@ if [ $? -eq 0 ]; then
     fi
 else
     echo "服务启动失败，请检查日志"
-    sudo docker compose logs
+    sudo $DOCKER_COMPOSE_CMD logs
 fi
-
