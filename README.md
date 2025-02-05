@@ -28,6 +28,11 @@ curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts
 
 ## Windows 系统安装步骤
 
-对于 Windows 用户，请从我们的 GitHub 仓库下载 `windows-silly-tavern-deploy.bat` 文件，开启魔法的 系统代理+ TUN 模式后右键点击该文件以管理员身份运行。
+对于 Windows 用户，请从我们的 GitHub 仓库 中的 Releases 下载最新的 `windows-silly-tavern-deploy.bat` 文件
+
+[Windows 一键安装版本 V1.0.0](https://github.com/mxw13579/silly-tavern-docker-starts/releases/download/v1.0/windows-silly-tavern-deploy.bat)
+
+开启魔法的 系统代理+ TUN 模式后右键点击该文件以管理员身份运行。
+
 
 在脚本执行时会检测 IP 地址以及对应地区，当安装失败后请检测地区与魔法地区是否吻合
