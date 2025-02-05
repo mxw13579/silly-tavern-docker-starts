@@ -1,17 +1,34 @@
 #!/bin/bash
 
+# 检查是否具有sudo权限
+if ! command -v sudo &> /dev/null; then
+    echo "需要sudo权限来安装Docker"
+    exit 1
+fi
+
+# 主安装流程
+echo "检测系统类型..."
 # 检查系统类型
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     OS=$ID
+elif [ -f /etc/redhat-release ]; then
+    OS=$(cat /etc/redhat-release | sed 's/\(.*\)release.*/\1/' | tr '[:upper:]' '[:lower:]' | tr -d ' ')
+elif [ -f /etc/arch-release ]; then
+    OS="arch"
+elif [ -f /etc/alpine-release ]; then
+    OS="alpine"
+elif [ -f /etc/SuSE-release ]; then
+    OS="suse"
 else
     echo "无法确定操作系统类型"
     exit 1
 fi
 
-# 安装Docker的函数 - 基于Debian/Ubuntu系统
+
+# 安装Docker的函数 - Debian系统
 install_docker_debian() {
-    echo "在 Debian/Ubuntu 系统上安装 Docker..."
+    echo "在 Debian 系统上安装 Docker..."
 
     # 移除旧版本
     sudo apt-get remove docker docker-engine docker.io containerd runc || true
@@ -25,12 +42,43 @@ install_docker_debian() {
         gnupg \
         lsb-release
 
-    # 添加Docker官方GPG密钥
+    # 添加Docker官方GPG密钥（Debian专用）
+    sudo install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+    # 设置Debian仓库
+    echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+        $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    # 安装Docker
+    sudo apt-get update
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
+
+# 安装Docker的函数 - Ubuntu系统
+install_docker_ubuntu() {
+    echo "在 Ubuntu 系统上安装 Docker..."
+
+    # 移除旧版本
+    sudo apt-get remove docker docker-engine docker.io containerd runc || true
+
+    # 更新并安装依赖
+    sudo apt-get update
+    sudo apt-get install -y \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        gnupg \
+        lsb-release
+
+    # 添加Docker官方GPG密钥（Ubuntu专用）
     sudo install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
-    # 设置仓库
+    # 设置Ubuntu仓库
     echo \
         "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
         $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
@@ -57,6 +105,28 @@ install_docker_centos() {
     sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 }
 
+# Arch Linux 安装函数
+install_docker_arch() {
+    echo "在 Arch Linux 系统上安装 Docker..."
+    sudo pacman -Sy
+    sudo pacman -S --noconfirm docker docker-compose
+}
+
+# Alpine Linux 安装函数
+install_docker_alpine() {
+    echo "在 Alpine Linux 系统上安装 Docker..."
+    sudo apk update
+    sudo apk add docker docker-compose
+}
+
+# OpenSUSE 安装函数
+install_docker_suse() {
+    echo "在 OpenSUSE 系统上安装 Docker..."
+    sudo zypper refresh
+    sudo zypper install -y docker docker-compose
+}
+
+
 # 安装Docker的函数 - 基于Fedora系统
 install_docker_fedora() {
     echo "在 Fedora 系统上安装 Docker..."
@@ -78,8 +148,11 @@ echo "检测系统类型..."
 # 检查是否已安装Docker
 if ! command -v docker &> /dev/null; then
     case $OS in
-        debian|ubuntu)
+        debian)
             install_docker_debian
+            ;;
+        ubuntu)
+            install_docker_ubuntu
             ;;
         centos|rhel)
             install_docker_centos
@@ -87,20 +160,43 @@ if ! command -v docker &> /dev/null; then
         fedora)
             install_docker_fedora
             ;;
+        arch)
+            install_docker_arch
+            ;;
+        alpine)
+            install_docker_alpine
+            ;;
+        suse|opensuse-leap|opensuse-tumbleweed)
+            install_docker_suse
+            ;;
         *)
             echo "不支持的操作系统: $OS"
             exit 1
             ;;
     esac
 
+
     # 启动Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    # Alpine 的特殊处理
+    if [ "$OS" = "alpine" ]; then
+        sudo rc-update add docker boot
+        sudo service docker start
+    else
+        sudo systemctl start docker
+        sudo systemctl enable docker
+    fi
+
+
 
     # 验证Docker安装
     if ! docker --version > /dev/null 2>&1; then
         echo "Docker安装失败"
         exit 1
+    fi
+
+    # 检查Docker Compose
+    if ! docker-compose --version > /dev/null 2>&1; then
+        echo "警告: Docker Compose 未安装或安装失败"
     fi
 else
     echo "Docker已安装，跳过安装步骤"
@@ -156,16 +252,38 @@ done
 # 确保显示用户的选择
 echo "您选择了: $([ "$enable_external_access" = "y" ] && echo "开启" || echo "不开启")外网访问"
 
-
 # 生成随机字符串的函数
 generate_random_string() {
     tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16
 }
 
 if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
-    # 生成随机的用户名和密码
-    username=$(generate_random_string)
-    password=$(generate_random_string)
+    # 让用户选择用户名密码的生成方式
+    echo "请选择用户名密码的生成方式:"
+    echo "1. 随机生成"
+    echo "2. 手动输入"
+    while true; do
+        read -r choice </dev/tty
+        case $choice in
+            1)
+                username=$(generate_random_string)
+                password=$(generate_random_string)
+                echo "已生成随机用户名: $username"
+                echo "已生成随机密码: $password"
+                break
+                ;;
+            2)
+                echo -n "请输入用户名: "
+                read -r username </dev/tty
+                echo -n "请输入密码: "
+                read -r password </dev/tty
+                break
+                ;;
+            *)
+                echo "请输入 1 或 2"
+                ;;
+        esac
+    done
 
     # 创建config目录和配置文件
     sudo mkdir -p /data/docker/sillytavem/config
