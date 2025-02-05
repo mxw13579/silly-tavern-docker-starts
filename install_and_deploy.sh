@@ -25,6 +25,9 @@ else
     exit 1
 fi
 
+# 主安装流程
+echo "当前操作系统类型为 $OS"
+
 
 # 安装Docker的函数 - Debian系统
 install_docker_debian() {
