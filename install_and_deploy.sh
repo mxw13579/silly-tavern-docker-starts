@@ -25,8 +25,6 @@ else
     exit 1
 fi
 
-# 主安装流程
-echo "当前操作系统类型为 $OS"
 
 
 # 安装Docker的函数 - Debian系统
@@ -387,9 +385,17 @@ else
     echo "未开启外网访问，将使用默认配置。"
 fi
 
-# 启动服务
+# 检查服务是否已运行并重启
 cd /data/docker/sillytavem
-sudo docker compose up -d
+
+if sudo docker compose ps | grep -q "Up"; then
+    echo "检测到服务正在运行，正在重启..."
+    sudo docker compose stop
+    sudo docker compose up -d
+else
+    echo "服务未运行，正在启动..."
+    sudo docker compose up -d
+fi
 
 # 检查服务是否成功启动
 if [ $? -eq 0 ]; then
