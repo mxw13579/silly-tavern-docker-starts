@@ -143,7 +143,7 @@ install_docker_fedora() {
 }
 
 # 主安装流程
-echo "检测系统类型..."
+echo "当前操作系统类型为 $OS"
 
 # 检查是否已安装Docker
 if ! command -v docker &> /dev/null; then
