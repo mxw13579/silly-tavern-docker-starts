@@ -262,7 +262,7 @@ if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
     # 让用户选择用户名密码的生成方式
     echo "请选择用户名密码的生成方式:"
     echo "1. 随机生成"
-    echo "2. 手动输入"
+    echo "2. 手动输入(推荐)"
     while true; do
         read -r choice </dev/tty
         case $choice in
@@ -274,9 +274,9 @@ if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
                 break
                 ;;
             2)
-                echo -n "请输入用户名: "
+                echo -n "请输入用户名(不可以使用纯数字): "
                 read -r username </dev/tty
-                echo -n "请输入密码: "
+                echo -n "请输入密码(不可以使用纯数字): "
                 read -r password </dev/tty
                 break
                 ;;
