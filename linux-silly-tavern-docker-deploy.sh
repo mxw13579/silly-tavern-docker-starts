@@ -25,7 +25,59 @@ else
     exit 1
 fi
 
-
+# 检查并设置docker compose命令
+setup_docker_compose() {
+    # 首先检查是否有docker compose（新版命令）
+    if docker compose version &> /dev/null; then
+        echo "检测到 docker compose 命令可用"
+        DOCKER_COMPOSE_CMD="docker compose"
+        return 0
+    fi
+    
+    # 检查是否有docker-compose（旧版命令）
+    if command -v docker-compose &> /dev/null; then
+        echo "检测到 docker-compose 命令可用"
+        DOCKER_COMPOSE_CMD="docker-compose"
+        return 0
+    fi
+    
+    # 如果都没有，则需要安装docker-compose
+    echo "未检测到 docker compose，将安装 docker-compose..."
+    
+    case $OS in
+        debian|ubuntu)
+            sudo apt-get update
+            sudo apt-get install -y docker-compose
+            ;;
+        centos|rhel|fedora)
+            sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+            sudo chmod +x /usr/local/bin/docker-compose
+            ;;
+        arch)
+            sudo pacman -S --noconfirm docker-compose
+            ;;
+        alpine)
+            sudo apk add docker-compose
+            ;;
+        suse|opensuse-leap|opensuse-tumbleweed)
+            sudo zypper install -y docker-compose
+            ;;
+        *)
+            echo "不支持的操作系统: $OS"
+            exit 1
+            ;;
+    esac
+    
+    # 验证安装
+    if command -v docker-compose &> /dev/null; then
+        echo "docker-compose 安装成功"
+        DOCKER_COMPOSE_CMD="docker-compose"
+        return 0
+    else
+        echo "docker-compose 安装失败"
+        exit 1
+    fi
+}
 
 # 安装Docker的函数 - Debian系统
 install_docker_debian() {
@@ -127,7 +179,6 @@ install_docker_suse() {
     sudo zypper install -y docker docker-compose
 }
 
-
 # 安装Docker的函数 - 基于Fedora系统
 install_docker_fedora() {
     echo "在 Fedora 系统上安装 Docker..."
@@ -176,7 +227,6 @@ if ! command -v docker &> /dev/null; then
             ;;
     esac
 
-
     # 启动Docker服务
     # Alpine 的特殊处理
     if [ "$OS" = "alpine" ]; then
@@ -187,21 +237,17 @@ if ! command -v docker &> /dev/null; then
         sudo systemctl enable docker
     fi
 
-
-
     # 验证Docker安装
     if ! docker --version > /dev/null 2>&1; then
         echo "Docker安装失败"
         exit 1
     fi
-
-    # 检查Docker Compose
-    if ! docker-compose --version > /dev/null 2>&1; then
-        echo "警告: Docker Compose 未安装或安装失败"
-    fi
 else
     echo "Docker已安装，跳过安装步骤"
 fi
+
+# 设置 docker compose 命令
+setup_docker_compose
 
 # 创建所需目录
 sudo mkdir -p /data/docker/sillytavem
@@ -388,13 +434,13 @@ fi
 # 检查服务是否已运行并重启
 cd /data/docker/sillytavem
 
-if sudo docker compose ps | grep -q "Up"; then
+if sudo $DOCKER_COMPOSE_CMD ps | grep -q "Up"; then
     echo "检测到服务正在运行，正在重启..."
-    sudo docker compose stop
-    sudo docker compose up -d
+    sudo $DOCKER_COMPOSE_CMD stop
+    sudo $DOCKER_COMPOSE_CMD up -d
 else
     echo "服务未运行，正在启动..."
-    sudo docker compose up -d
+    sudo $DOCKER_COMPOSE_CMD up -d
 fi
 
 # 检查服务是否成功启动
@@ -409,6 +455,5 @@ if [ $? -eq 0 ]; then
     fi
 else
     echo "服务启动失败，请检查日志"
-    sudo docker compose logs
+    sudo $DOCKER_COMPOSE_CMD logs
 fi
-
