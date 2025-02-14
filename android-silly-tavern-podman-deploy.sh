@@ -1,41 +1,24 @@
 #!/bin/bash
 
-# 更新软件包列表并安装必要的包
+# 更新软件包列表
 pkg update -y
-pkg install -y podman python
 
-# 安装 podman-compose
-pip install --user podman-compose
+# 安装必要的包
+pkg install -y git nodejs-lts
 
-# 创建 docker-compose.yaml 文件的目录
-mkdir -p /data/docker/sillytavem
+# 克隆 SillyTavern 项目
+git clone https://github.com/SillyTavern/SillyTavern.git ~/sillytavern
 
-# 写入 docker-compose.yaml 文件内容
-cat <<EOF > /data/docker/sillytavem/docker-compose.yaml
-version: '3.8'
+# 进入项目目录
+cd ~/sillytavern
 
-services:
-  sillytavern:
-    image: ghcr.io/sillytavern/sillytavern:1.12.11
-    container_name: sillytavern
-    networks:
-      - DockerNet
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./plugins:/home/node/app/plugins:rw
-      - ./config:/home/node/app/config:rw
-      - ./data:/home/node/app/data:rw
-      - ./extensions:/home/node/app/public/scripts/extensions/third-party:rw
-    restart: always
+# 安装依赖
+npm install
 
-networks:
-  DockerNet:
-    name: DockerNet
-EOF
+# 创建必要的目录
+mkdir -p plugins config data extensions
 
-# 切换到文件目录
-cd /data/docker/sillytavem
+# 启动应用（以后台方式）
+nohup node server.js &
 
-# 使用 podman-compose 启动服务
-~/.local/bin/podman-compose up -d
+echo "SillyTavern 已启动，可以通过 http://localhost:8000 访问。"
