@@ -4,15 +4,34 @@ echo "
 一键安卓脚本 - 基于 Podman
 "
 
-echo -e "\033[0;31m确保已经正确安装Podman和魔法网络，然后按回车继续~\033[0m\n"
-read -p "确认后按回车继续"
-
 # 检查并安装 Podman
 if ! command -v podman &>/dev/null; then
     echo "Podman 未安装，正在安装 Podman 和相关依赖..."
+
+    # 尝试安装 Podman
     pkg update && pkg upgrade -y
+    pkg install -y unstable-repo
     pkg install -y git podman fuse-overlayfs slirp4netns
-    echo "Podman 已安装成功！"
+
+    # 手动安装 Podman 二进制（若上面步骤失败）
+    if ! command -v podman &>/dev/null; then
+        echo "尝试手动安装 Podman..."
+        curl -L https://github.com/containers/podman/releases/download/v4.5.0/podman-4.5.0-linux-arm.tar.gz -o podman.tar.gz
+        tar -xzf podman.tar.gz -C $HOME
+        mkdir -p $HOME/bin
+        mv $HOME/podman-4.5.0-linux-arm/podman $HOME/bin/
+        chmod +x $HOME/bin/podman
+        echo 'export PATH=$HOME/bin:$PATH' >> ~/.bashrc
+        source ~/.bashrc
+    fi
+
+    # 检查 Podman 是否安装成功
+    if ! command -v podman &>/dev/null; then
+        echo -e "\033[0;31mPodman 安装失败，请手动检查！\033[0m"
+        exit 1
+    else
+        echo "Podman 安装成功！"
+    fi
 else
     echo "Podman 已安装，跳过此步骤~"
 fi
@@ -20,7 +39,7 @@ fi
 # 确保 Podman 配置初始化
 mkdir -p $HOME/.config/containers
 if [ ! -f "$HOME/.config/containers/containers.conf" ]; then
-    cp /data/data/com.termux/files/usr/share/containers/containers.conf $HOME/.config/containers/
+    echo "default_runtime = \"runc\"" > $HOME/.config/containers/containers.conf
     echo "Podman 配置初始化完成~"
 fi
 
@@ -30,6 +49,9 @@ if ! ping -c 1 -W 1 google.com >/dev/null 2>&1; then
     echo -e "\033[0;31m网络连接失败，请检查网络或魔法连接~\033[0m"
     exit 1
 fi
+
+# 继续脚本逻辑...
+
 
 # 创建工作目录
 workdir=$HOME/podman-sillytavern
