@@ -5,8 +5,24 @@ echo "
 "
 
 echo -e "\033[0;31m确保已经正确安装Podman和魔法网络，然后按回车继续~\033[0m\n"
-
 read -p "确认后按回车继续"
+
+# 检查并安装 Podman
+if ! command -v podman &>/dev/null; then
+    echo "Podman 未安装，正在安装 Podman 和相关依赖..."
+    pkg update && pkg upgrade -y
+    pkg install -y git podman fuse-overlayfs slirp4netns
+    echo "Podman 已安装成功！"
+else
+    echo "Podman 已安装，跳过此步骤~"
+fi
+
+# 确保 Podman 配置初始化
+mkdir -p $HOME/.config/containers
+if [ ! -f "$HOME/.config/containers/containers.conf" ]; then
+    cp /data/data/com.termux/files/usr/share/containers/containers.conf $HOME/.config/containers/
+    echo "Podman 配置初始化完成~"
+fi
 
 # 确保网络正常
 echo "正在检查网络..."
@@ -21,11 +37,8 @@ mkdir -p "$workdir"
 cd "$workdir"
 
 # 拉取 Ubuntu 镜像
-echo "正在下载 Ubuntu 镜像喵~"
-podman pull ubuntu:22.04
-
-# 检查镜像是否拉取成功
-if ! podman images | grep ubuntu:22.04 >/dev/null 2>&1; then
+echo "正在下载 Ubuntu 镜像~"
+if ! podman pull ubuntu:22.04; then
     echo -e "\033[0;31mUbuntu 镜像下载失败，请检查网络或魔法连接~\033[0m"
     exit 1
 fi
