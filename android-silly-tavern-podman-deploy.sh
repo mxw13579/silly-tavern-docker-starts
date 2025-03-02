@@ -1,24 +1,44 @@
-#!/bin/bash
+#!/data/data/com.termux/files/usr/bin/bash
 
-# 更新软件包列表
-pkg update -y
+# 更新包列表并安装必要的工具
+pkg update && pkg upgrade -y
+pkg install -y docker docker-compose git
 
-# 安装必要的包
-pkg install -y git nodejs-lts
+# 启动 Docker 服务
+dockerd &
 
-# 克隆 SillyTavern 项目
-git clone https://github.com/SillyTavern/SillyTavern.git ~/sillytavern
+# 等待 Docker 启动
+sleep 5
 
-# 进入项目目录
-cd ~/sillytavern
+# 创建项目目录
+mkdir -p ~/sillytavern-docker
+cd ~/sillytavern-docker
 
-# 安装依赖
-npm install
+# 创建 docker-compose.yml 文件
+cat <<EOF > docker-compose.yml
+version: '3.8'
 
-# 创建必要的目录
-mkdir -p plugins config data extensions
+services:
+  sillytavern:
+    image: ghcr.io/sillytavern/sillytavern:latest
+    container_name: sillytavern
+    networks:
+      - DockerNet
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./plugins:/home/node/app/plugins:rw
+      - ./config:/home/node/app/config:rw
+      - ./data:/home/node/app/data:rw
+      - ./extensions:/home/node/app/public/scripts/extensions/third-party:rw
+    restart: always
 
-# 启动应用（以后台方式）
-nohup node server.js &
+networks:
+  DockerNet:
+    name: DockerNet
+EOF
 
-echo "SillyTavern 已启动，可以通过 http://localhost:8000 访问。"
+# 启动 Docker Compose
+docker-compose up -d
+
+echo "SillyTavern 已启动，您可以通过 http://localhost:8000 访问它。"
