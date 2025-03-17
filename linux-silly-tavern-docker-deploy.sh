@@ -641,46 +641,76 @@ cat <<EOF | sudo tee /data/docker/sillytavem/backup.sh
 
 # 设置变量
 backup_dir="/data/docker/sillytavem"
-backups_folder="\${backup_dir}/backups"
-timestamp=\$(date +"%Y%m%d_%H%M%S")
-backup_file="\${backups_folder}/sillytavern_data_backup_\${timestamp}.zip"
+backups_folder="${backup_dir}/backups"
+timestamp=$(date +"%Y%m%d_%H%M%S")
+backup_file="${backups_folder}/sillytavern_data_backup_${timestamp}"
 
 # 确保备份目录存在
-mkdir -p "\${backups_folder}"
+mkdir -p "${backups_folder}"
 
 echo "正在创建数据备份..."
 
 # 检查数据目录是否存在
-if [ ! -d "\${backup_dir}/data" ]; then
-    echo "错误: 数据目录不存在 (\${backup_dir}/data)"
+if [ ! -d "${backup_dir}/data" ]; then
+    echo "错误: 数据目录不存在 (${backup_dir}/data)"
     exit 1
 fi
 
-# 检查zip命令是否存在，如果不存在则安装
-if ! command -v zip &> /dev/null; then
-    echo "正在安装zip工具..."
-    if command -v apt-get &> /dev/null; then
-        sudo apt-get update && sudo apt-get install -y zip
-    elif command -v yum &> /dev/null; then
-        sudo yum install -y zip
+# 尝试使用tar进行备份（大多数Linux系统都预装了tar）
+if command -v tar &> /dev/null; then
+    echo "使用tar创建备份..."
+    cd "${backup_dir}" && sudo tar -czf "${backup_file}.tar.gz" data/
+
+    if [ $? -eq 0 ]; then
+        sudo chmod 644 "${backup_file}.tar.gz"
+        echo "备份成功创建: ${backup_file}.tar.gz"
+        echo "您可以使用以下命令下载备份文件:"
+        echo "scp <用户名>@<服务器IP>:${backup_file}.tar.gz ."
+        exit 0
     else
-        echo "无法安装zip工具，请手动安装"
-        exit 1
+        echo "使用tar备份失败，将尝试其他方法..."
     fi
 fi
 
-# 创建备份
-cd "\${backup_dir}" && sudo zip -r "\${backup_file}" data/
+# 如果tar失败，尝试使用zip
+if ! command -v zip &> /dev/null; then
+    echo "正在尝试安装zip工具..."
 
-if [ \$? -eq 0 ]; then
-    sudo chmod 644 "\${backup_file}"
-    echo "备份成功创建: \${backup_file}"
-    echo "您可以使用以下命令下载备份文件:"
-    echo "scp <用户名>@<服务器IP>:\${backup_file} ."
-else
-    echo "备份创建失败，请检查错误信息"
-    exit 1
+    if command -v apt-get &> /dev/null; then
+        # 对于Debian/Ubuntu系统，跳过错误继续执行
+        sudo apt-get update || true
+        sudo apt-get install -y zip || true
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y zip || true
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y zip || true
+    elif command -v pacman &> /dev/null; then
+        sudo pacman -S --noconfirm zip || true
+    elif command -v apk &> /dev/null; then
+        sudo apk add zip || true
+    else
+        echo "无法找到适用的包管理器安装zip工具"
+    fi
 fi
+
+# 再次检查zip是否可用
+if command -v zip &> /dev/null; then
+    echo "使用zip创建备份..."
+    cd "${backup_dir}" && sudo zip -r "${backup_file}.zip" data/
+
+    if [ $? -eq 0 ]; then
+        sudo chmod 644 "${backup_file}.zip"
+        echo "备份成功创建: ${backup_file}.zip"
+        echo "您可以使用以下命令下载备份文件:"
+        echo "scp <用户名>@<服务器IP>:${backup_file}.zip ."
+        exit 0
+    fi
+fi
+
+# 所有备份方法都失败
+echo "备份创建失败，所有可用的备份方法都失败了"
+exit 1
+
 EOF
 
 # 使备份脚本可执行
