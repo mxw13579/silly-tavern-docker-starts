@@ -252,13 +252,13 @@ setup_docker_compose
 # 创建所需目录
 sudo mkdir -p /data/docker/sillytavem
 
-# 写入docker-compose.yaml文件内容
+# 写入docker-compose.yaml文件内容，使用最新版本并添加watchtower服务
 cat <<EOF | sudo tee /data/docker/sillytavem/docker-compose.yaml
 version: '3.8'
 
 services:
   sillytavern:
-    image: ghcr.io/sillytavern/sillytavern:1.12.11
+    image: ghcr.io/sillytavern/sillytavern:latest
     container_name: sillytavern
     networks:
       - DockerNet
@@ -270,6 +270,19 @@ services:
       - ./data:/home/node/app/data:rw
       - ./extensions:/home/node/app/public/scripts/extensions/third-party:rw
     restart: always
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # 添加watchtower服务自动更新容器
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 86400 --cleanup --label-enable # 每天检查一次更新
+    restart: always
+    networks:
+      - DockerNet
 
 networks:
   DockerNet:
@@ -431,12 +444,73 @@ else
     echo "未开启外网访问，将使用默认配置。"
 fi
 
+# 创建备份脚本以便将来使用
+cat <<EOF | sudo tee /data/docker/sillytavem/backup.sh
+#!/bin/bash
+
+# 设置变量
+backup_dir="/data/docker/sillytavem"
+backups_folder="\${backup_dir}/backups"
+timestamp=\$(date +"%Y%m%d_%H%M%S")
+backup_file="\${backups_folder}/sillytavern_data_backup_\${timestamp}.zip"
+
+# 确保备份目录存在
+mkdir -p "\${backups_folder}"
+
+echo "正在创建数据备份..."
+
+# 检查数据目录是否存在
+if [ ! -d "\${backup_dir}/data" ]; then
+    echo "错误: 数据目录不存在 (\${backup_dir}/data)"
+    exit 1
+fi
+
+# 检查zip命令是否存在，如果不存在则安装
+if ! command -v zip &> /dev/null; then
+    echo "正在安装zip工具..."
+    if command -v apt-get &> /dev/null; then
+        sudo apt-get update && sudo apt-get install -y zip
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y zip
+    else
+        echo "无法安装zip工具，请手动安装"
+        exit 1
+    fi
+fi
+
+# 创建备份
+cd "\${backup_dir}" && sudo zip -r "\${backup_file}" data/
+
+if [ \$? -eq 0 ]; then
+    sudo chmod 644 "\${backup_file}"
+    echo "备份成功创建: \${backup_file}"
+    echo "您可以使用以下命令下载备份文件:"
+    echo "scp <用户名>@<服务器IP>:\${backup_file} ."
+else
+    echo "备份创建失败，请检查错误信息"
+    exit 1
+fi
+EOF
+
+# 使备份脚本可执行
+sudo chmod +x /data/docker/sillytavem/backup.sh
+
+# 检查Docker和Docker Compose是否可用
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker compose"
+else
+    echo "未找到docker-compose或docker compose命令，请安装Docker和Docker Compose"
+    exit 1
+fi
+
 # 检查服务是否已运行并重启
 cd /data/docker/sillytavem
 
 if sudo $DOCKER_COMPOSE_CMD ps | grep -q "Up"; then
     echo "检测到服务正在运行，正在重启..."
-    sudo $DOCKER_COMPOSE_CMD stop
+    sudo $DOCKER_COMPOSE_CMD down
     sudo $DOCKER_COMPOSE_CMD up -d
 else
     echo "服务未运行，正在启动..."
@@ -453,7 +527,28 @@ if [ $? -eq 0 ]; then
         echo "用户名: ${username}"
         echo "密码: ${password}"
     fi
+
+    # 检查watchtower是否正常运行
+    if sudo $DOCKER_COMPOSE_CMD ps | grep -q "watchtower.*Up"; then
+        echo "自动更新服务(watchtower)已成功启动，将每天检查更新"
+    else
+        echo "自动更新服务(watchtower)启动失败，请检查日志"
+    fi
 else
     echo "服务启动失败，请检查日志"
     sudo $DOCKER_COMPOSE_CMD logs
 fi
+
+# 添加备份选项，仅当数据目录存在时才提供
+if [ -d "/data/docker/sillytavem/data" ] && [ -n "$(ls -A /data/docker/sillytavem/data 2>/dev/null)" ]; then
+    echo ""
+    echo "检测到数据目录存在，是否要创建数据备份？(y/n): "
+    read -r backup_choice </dev/tty
+    if [[ $backup_choice == "y" || $backup_choice == "Y" ]]; then
+        sudo bash /data/docker/sillytavem/backup.sh
+    fi
+fi
+
+echo ""
+echo "您可以通过运行以下命令随时备份数据："
+echo "    sudo bash /data/docker/sillytavem/backup.sh"
