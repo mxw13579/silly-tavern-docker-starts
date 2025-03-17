@@ -725,22 +725,10 @@ else
     echo "未找到docker-compose或docker compose命令，请安装Docker和Docker Compose"
     exit 1
 fi
-
-# 检查Docker和Docker Compose是否可用
-if command -v docker-compose &> /dev/null; then
-    DOCKER_COMPOSE_CMD="docker-compose"
-elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
-    DOCKER_COMPOSE_CMD="docker compose"
-else
-    echo "未找到docker-compose或docker compose命令，请安装Docker和Docker Compose"
-    exit 1
-fi
-
-cd /data/docker/sillytavem
-
-# 检查是否已有安装
+# 立即检查是否已有安装
 if check_existing_installation; then
     echo "检测到已存在的SillyTavern安装"
+    cd /data/docker/sillytavem
     current_version=$(get_current_version)
     latest_version=$(get_latest_version)
 
