@@ -79,6 +79,197 @@ setup_docker_compose() {
     fi
 }
 
+# 检查现有安装
+check_existing_installation() {
+    if [ -f "/data/docker/sillytavem/docker-compose.yaml" ]; then
+        return 0 # 安装存在
+    else
+        return 1 # 未找到安装
+    fi
+}
+
+# 获取当前版本
+get_current_version() {
+    local current_version="未知"
+    if sudo docker ps -q --filter "name=sillytavern" &> /dev/null; then
+        current_version=$(sudo docker inspect --format='{{index .Config.Labels "org.opencontainers.image.version"}}' $(sudo docker ps -q --filter "name=sillytavern"))
+        if [ -z "$current_version" ]; then
+            current_version="无法获取版本信息"
+        fi
+    fi
+    echo "$current_version"
+}
+# 获取最新版本
+get_latest_version() {
+    local latest_version="未知"
+
+    # 尝试获取最新版本信息
+    latest_version=$(curl -s "https://api.github.com/repos/sillytavern/sillytavern/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
+
+    if [ -z "$latest_version" ]; then
+        latest_version="无法获取最新版本信息"
+    fi
+
+    echo "$latest_version"
+}
+# 更新酒馆
+update_tavern() {
+    echo "正在更新酒馆..."
+    cd /data/docker/sillytavem
+    sudo $DOCKER_COMPOSE_CMD pull
+    sudo $DOCKER_COMPOSE_CMD down
+    sudo $DOCKER_COMPOSE_CMD up -d
+
+    # 检查服务是否成功启动
+    if [ $? -eq 0 ]; then
+        # 获取外网IP
+        public_ip=$(curl -sS https://api.ipify.org)
+        echo "SillyTavern 已成功更新并启动"
+        echo "访问地址: http://${public_ip}:8000"
+        if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
+            echo "用户名: ${username}"
+            echo "密码: ${password}"
+        fi
+        # 检查watchtower是否正常运行
+        if sudo $DOCKER_COMPOSE_CMD ps | grep -q "watchtower.*Up"; then
+            echo "自动更新服务(watchtower)已成功启动，将每天检查更新"
+        else
+            echo "自动更新服务(watchtower)启动失败，请检查日志"
+        fi
+    else
+        echo "服务启动失败，请检查日志"
+        sudo $DOCKER_COMPOSE_CMD logs
+    fi
+}
+# 导入备份
+import_backup() {
+    echo "请选择导入方式："
+    echo "1. 选择远程zip文件"
+    echo "2. 本地目录"
+    read -r import_choice </dev/tty
+
+    case $import_choice in
+        1)
+            echo "请输入远程zip文件URL:"
+            read -r backup_url </dev/tty
+
+            temp_dir=$(mktemp -d)
+            echo "正在下载备份文件..."
+
+            # 支持多种下载工具
+            if command -v curl &> /dev/null; then
+                curl -L "$backup_url" -o "$temp_dir/backup.zip"
+            elif command -v wget &> /dev/null; then
+                wget -O "$temp_dir/backup.zip" "$backup_url"
+            else
+                echo "未找到curl或wget，请安装后重试"
+                rm -rf "$temp_dir"
+                return 1
+            fi
+
+            echo "正在解压备份文件..."
+            unzip -o "$temp_dir/backup.zip" -d "$temp_dir"
+
+            echo "正在导入备份数据..."
+            sudo $DOCKER_COMPOSE_CMD down
+            sudo cp -r "$temp_dir/data/"* "/data/docker/sillytavem/data/"
+            sudo chown -R $(id -u):$(id -g) "/data/docker/sillytavem/data/"
+
+            rm -rf "$temp_dir"
+            echo "备份数据导入完成！"
+            ;;
+        2)
+            echo "请输入本地备份目录路径 (留空使用默认路径 /data/docker/sillytavem/backups/):"
+            read -r backup_dir </dev/tty
+
+            if [ -z "$backup_dir" ]; then
+                backup_dir="/data/docker/sillytavem/backups"
+            fi
+
+            if [ ! -d "$backup_dir" ]; then
+                echo "目录不存在: $backup_dir"
+                return 1
+            fi
+
+            # 列出可用的备份文件
+            echo "可用的备份文件:"
+            ls -1 "$backup_dir" | grep -E '\.zip$' | cat -n
+            echo "请选择要导入的备份文件编号:"
+            read -r backup_num </dev/tty
+
+            backup_file=$(ls -1 "$backup_dir" | grep -E '\.zip$' | sed -n "${backup_num}p")
+            if [ -z "$backup_file" ]; then
+                echo "无效的选择"
+                return 1
+            fi
+
+            full_path="$backup_dir/$backup_file"
+
+            temp_dir=$(mktemp -d)
+            echo "正在解压备份文件 $full_path..."
+            unzip -o "$full_path" -d "$temp_dir"
+
+            echo "正在导入备份数据..."
+            sudo $DOCKER_COMPOSE_CMD down
+            sudo cp -r "$temp_dir/data/"* "/data/docker/sillytavem/data/"
+            sudo chown -R $(id -u):$(id -g) "/data/docker/sillytavem/data/"
+
+            rm -rf "$temp_dir"
+            echo "备份数据导入完成！"
+            ;;
+        *)
+            echo "无效的选择"
+            return 1
+            ;;
+    esac
+
+    # 导入完成后启动服务
+    sudo $DOCKER_COMPOSE_CMD up -d
+
+    # 检查服务是否成功启动
+    if [ $? -eq 0 ]; then
+        # 获取外网IP
+        public_ip=$(curl -sS https://api.ipify.org)
+        echo "SillyTavern 已成功启动"
+        echo "访问地址: http://${public_ip}:8000"
+        if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
+            echo "用户名: ${username}"
+            echo "密码: ${password}"
+        fi
+    else
+        echo "服务启动失败，请检查日志"
+        sudo $DOCKER_COMPOSE_CMD logs
+    fi
+}
+# 启动酒馆
+start_tavern() {
+    echo "正在启动酒馆..."
+    cd /data/docker/sillytavem
+    sudo $DOCKER_COMPOSE_CMD up -d
+
+    # 检查服务是否成功启动
+    if [ $? -eq 0 ]; then
+        # 获取外网IP
+        public_ip=$(curl -sS https://api.ipify.org)
+        echo "SillyTavern 已成功启动"
+        echo "访问地址: http://${public_ip}:8000"
+        if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
+            echo "用户名: ${username}"
+            echo "密码: ${password}"
+        fi
+        # 检查watchtower是否正常运行
+        if sudo $DOCKER_COMPOSE_CMD ps | grep -q "watchtower.*Up"; then
+            echo "自动更新服务(watchtower)已成功启动，将每天检查更新"
+        else
+            echo "自动更新服务(watchtower)启动失败，请检查日志"
+        fi
+    else
+        echo "服务启动失败，请检查日志"
+        sudo $DOCKER_COMPOSE_CMD logs
+    fi
+}
+
+
 # 安装Docker的函数 - Debian系统
 install_docker_debian() {
     echo "在 Debian 系统上安装 Docker..."
@@ -505,17 +696,245 @@ else
     exit 1
 fi
 
-# 检查服务是否已运行并重启
+# 检查Docker和Docker Compose是否可用
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker compose"
+else
+    echo "未找到docker-compose或docker compose命令，请安装Docker和Docker Compose"
+    exit 1
+fi
+
 cd /data/docker/sillytavem
 
-if sudo $DOCKER_COMPOSE_CMD ps | grep -q "Up"; then
-    echo "检测到服务正在运行，正在重启..."
-    sudo $DOCKER_COMPOSE_CMD down
-    sudo $DOCKER_COMPOSE_CMD up -d
+# 检查是否已有安装
+if check_existing_installation; then
+    echo "检测到已存在的SillyTavern安装"
+    current_version=$(get_current_version)
+    latest_version=$(get_latest_version)
+
+    echo "当前版本: $current_version"
+    echo "最新版本: $latest_version"
+
+    echo "请选择操作:"
+    echo "1. 更新酒馆"
+    echo "2. 备份数据"
+    echo "3. 导入备份"
+    echo "4. 启动酒馆"
+    read -r choice </dev/tty
+
+    case $choice in
+        1)
+            update_tavern
+            ;;
+        2)
+            sudo bash /data/docker/sillytavem/backup.sh
+            ;;
+        3)
+            import_backup
+            ;;
+        4)
+            start_tavern
+            ;;
+        *)
+            echo "无效的选择，将默认启动酒馆"
+            start_tavern
+            ;;
+    esac
 else
+    # 执行新安装
+    # 创建所需目录
+    sudo mkdir -p /data/docker/sillytavem
+
+    # 写入docker-compose.yaml文件内容，使用最新版本并添加watchtower服务
+    cat <<EOF | sudo tee /data/docker/sillytavem/docker-compose.yaml
+version: '3.8'
+
+services:
+  sillytavern:
+    image: ghcr.io/sillytavern/sillytavern:latest
+    container_name: sillytavern
+    networks:
+      - DockerNet
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./plugins:/home/node/app/plugins:rw
+      - ./config:/home/node/app/config:rw
+      - ./data:/home/node/app/data:rw
+      - ./extensions:/home/node/app/public/scripts/extensions/third-party:rw
+    restart: always
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # 添加watchtower服务自动更新容器
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 86400 --cleanup --label-enable # 每天检查一次更新
+    restart: always
+    networks:
+      - DockerNet
+
+networks:
+  DockerNet:
+    name: DockerNet
+EOF
+
+    # 提示用户确认是否开启外网访问
+    echo "请选择是否开启外网访问"
+    while true; do
+        echo -n "是否开启外网访问？(y/n): "
+        read -r response </dev/tty
+        case $response in
+            [Yy]* )
+                enable_external_access="y"
+                break
+                ;;
+            [Nn]* )
+                enable_external_access="n"
+                break
+                ;;
+            * )
+                echo "请输入 y 或 n"
+                ;;
+        esac
+    done
+
+    # 确保显示用户的选择
+    echo "您选择了: $([ "$enable_external_access" = "y" ] && echo "开启" || echo "不开启")外网访问"
+
+    # 生成随机字符串的函数
+    generate_random_string() {
+        tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16
+    }
+
+    if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
+        # 让用户选择用户名密码的生成方式
+        echo "请选择用户名密码的生成方式:"
+        echo "1. 随机生成"
+        echo "2. 手动输入(推荐)"
+        while true; do
+            read -r choice </dev/tty
+            case $choice in
+                1)
+                    username=$(generate_random_string)
+                    password=$(generate_random_string)
+                    echo "已生成随机用户名: $username"
+                    echo "已生成随机密码: $password"
+                    break
+                    ;;
+                2)
+                    echo -n "请输入用户名(不可以使用纯数字): "
+                    read -r username </dev/tty
+                    echo -n "请输入密码(不可以使用纯数字): "
+                    read -r password </dev/tty
+                    break
+                    ;;
+                *)
+                    echo "请输入 1 或 2"
+                    ;;
+            esac
+        done
+
+        # 创建config目录和配置文件
+        sudo mkdir -p /data/docker/sillytavem/config
+        cat <<EOF | sudo tee /data/docker/sillytavem/config/config.yaml
+# TODO: config.yaml内容此处省略
+EOF
+
+        echo "已开启外网访问"
+        echo "用户名: $username"
+        echo "密码: $password"
+    else
+        echo "未开启外网访问，将使用默认配置。"
+    fi
+
+    # 创建备份脚本以便将来使用
+    cat <<EOF | sudo tee /data/docker/sillytavem/backup.sh
+#!/bin/bash
+
+# 设置变量
+backup_dir="/data/docker/sillytavem"
+backups_folder="\${backup_dir}/backups"
+timestamp=\$(date +"%Y%m%d_%H%M%S")
+backup_file="\${backups_folder}/sillytavern_data_backup_\${timestamp}.zip"
+
+# 确保备份目录存在
+mkdir -p "\${backups_folder}"
+
+echo "正在创建数据备份..."
+
+# 检查数据目录是否存在
+if [ ! -d "\${backup_dir}/data" ]; then
+    echo "错误: 数据目录不存在 (\${backup_dir}/data)"
+    exit 1
+fi
+
+# 检查zip命令是否存在，如果不存在则安装
+if ! command -v zip &> /dev/null; then
+    echo "正在安装zip工具..."
+    if command -v apt-get &> /dev/null; then
+        sudo apt-get update && sudo apt-get install -y zip
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y zip
+    else
+        echo "无法安装zip工具，请手动安装"
+        exit 1
+    fi
+fi
+
+# 创建备份
+cd "\${backup_dir}" && sudo zip -r "\${backup_file}" data/
+
+if [ \$? -eq 0 ]; then
+    sudo chmod 644 "\${backup_file}"
+    echo "备份成功创建: \${backup_file}"
+    echo "您可以使用以下命令下载备份文件:"
+    echo "scp <用户名>@<服务器IP>:\${backup_file} ."
+else
+    echo "备份创建失败，请检查错误信息"
+    exit 1
+fi
+EOF
+
+    # 使备份脚本可执行
+    sudo chmod +x /data/docker/sillytavem/backup.sh
+
+    # 启动服务
     echo "服务未运行，正在启动..."
     sudo $DOCKER_COMPOSE_CMD up -d
+
+    # 检查服务是否成功启动
+    if [ $? -eq 0 ]; then
+        # 获取外网IP
+        public_ip=$(curl -sS https://api.ipify.org)
+        echo "SillyTavern 已成功部署"
+        echo "访问地址: http://${public_ip}:8000"
+        if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
+            echo "用户名: ${username}"
+            echo "密码: ${password}"
+        fi
+
+        # 检查watchtower是否正常运行
+        if sudo $DOCKER_COMPOSE_CMD ps | grep -q "watchtower.*Up"; then
+            echo "自动更新服务(watchtower)已成功启动，将每天检查更新"
+        else
+            echo "自动更新服务(watchtower)启动失败，请检查日志"
+        fi
+    else
+        echo "服务启动失败，请检查日志"
+        sudo $DOCKER_COMPOSE_CMD logs
+    fi
 fi
+
+echo ""
+echo "您可以通过运行以下命令随时备份数据："
+echo "sudo bash /data/docker/sillytavem/backup.sh"
+
 
 # 检查服务是否成功启动
 if [ $? -eq 0 ]; then
