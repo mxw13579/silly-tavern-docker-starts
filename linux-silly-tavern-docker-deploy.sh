@@ -112,9 +112,201 @@ get_latest_version() {
 
     echo "$latest_version"
 }
+
+setup_update_mode() {
+    echo "请选择更新模式:"
+    echo "1. 自动更新 (使用最新版本标签并启用每日更新检查)"
+    echo "2. 手动更新 (使用固定版本标签，需手动执行更新)"
+
+    read -r update_choice </dev/tty
+
+    case $update_choice in
+        1)
+            echo "已选择自动更新模式"
+            auto_update="y"
+            image_tag="latest"
+            include_watchtower="y"
+            ;;
+        2)
+            echo "已选择手动更新模式"
+            auto_update="n"
+
+            # 获取最新版本以作为固定版本
+            latest_version=$(get_latest_version)
+            if [ "$latest_version" != "无法获取最新版本信息" ]; then
+                image_tag=$latest_version
+            else
+                echo "无法获取最新版本，将使用默认最新标签"
+                image_tag="latest"
+            fi
+
+            include_watchtower="n"
+            ;;
+        *)
+            echo "无效选择，默认使用自动更新模式"
+            auto_update="y"
+            image_tag="latest"
+            include_watchtower="y"
+            ;;
+    esac
+}
+
+create_docker_compose_file() {
+    local image_tag=$1
+    local include_watchtower=$2
+
+    echo "创建docker-compose.yaml文件，使用镜像版本: $image_tag"
+
+    # 基本服务配置
+    cat <<EOF | sudo tee /data/docker/sillytavem/docker-compose.yaml
+version: '3.8'
+
+services:
+  sillytavern:
+    image: ghcr.io/sillytavern/sillytavern:${image_tag}
+    container_name: sillytavern
+    networks:
+      - DockerNet
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./plugins:/home/node/app/plugins:rw
+      - ./config:/home/node/app/config:rw
+      - ./data:/home/node/app/data:rw
+      - ./extensions:/home/node/app/public/scripts/extensions/third-party:rw
+    restart: always
+EOF
+
+    # 根据选择添加自动更新相关标签和服务
+    if [ "$include_watchtower" = "y" ]; then
+        cat <<EOF | sudo tee -a /data/docker/sillytavem/docker-compose.yaml
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # 添加watchtower服务自动更新容器
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 86400 --cleanup --label-enable # 每天检查一次更新
+    restart: always
+    networks:
+      - DockerNet
+EOF
+    fi
+
+    # 添加网络配置
+    cat <<EOF | sudo tee -a /data/docker/sillytavem/docker-compose.yaml
+
+networks:
+  DockerNet:
+    name: DockerNet
+EOF
+}
+
+
+
+# 添加备份脚本检查和创建功能
+ensure_backup_script_exists() {
+    if [ ! -f "/data/docker/sillytavem/backup.sh" ]; then
+        echo "未找到备份脚本，正在创建..."
+        # 创建备份脚本以便将来使用
+        cat <<EOF | sudo tee /data/docker/sillytavem/backup.sh
+#!/bin/bash
+
+# 设置变量
+backup_dir="/data/docker/sillytavem"
+backups_folder="\${backup_dir}/backups"
+timestamp=\$(date +"%Y%m%d_%H%M%S")
+backup_file="\${backups_folder}/sillytavern_data_backup_\${timestamp}.zip"
+
+# 确保备份目录存在
+mkdir -p "\${backups_folder}"
+
+echo "正在创建数据备份..."
+
+# 检查数据目录是否存在
+if [ ! -d "\${backup_dir}/data" ]; then
+    echo "错误: 数据目录不存在 (\${backup_dir}/data)"
+    exit 1
+fi
+
+# 检查zip命令是否存在，如果不存在则安装
+if ! command -v zip &> /dev/null; then
+    echo "正在安装zip工具..."
+    if command -v apt-get &> /dev/null; then
+        sudo apt-get update && sudo apt-get install -y zip
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y zip
+    else
+        echo "无法安装zip工具，请手动安装"
+        exit 1
+    fi
+fi
+
+# 创建备份
+cd "\${backup_dir}" && sudo zip -r "\${backup_file}" data/
+
+if [ \$? -eq 0 ]; then
+    sudo chmod 644 "\${backup_file}"
+    echo "备份成功创建: \${backup_file}"
+else
+    echo "备份创建失败，请检查错误信息"
+    exit 1
+fi
+EOF
+        # 使备份脚本可执行
+        sudo chmod +x /data/docker/sillytavem/backup.sh
+        echo "备份脚本已创建"
+    fi
+}
+
+
+
 # 更新酒馆
 update_tavern() {
     echo "正在更新酒馆..."
+
+    # 检查是否是自动更新模式
+    if grep -q "watchtower" /data/docker/sillytavem/docker-compose.yaml; then
+        auto_update="y"
+    else
+        auto_update="n"
+    fi
+
+    if [ "$auto_update" = "y" ]; then
+        echo "检测到自动更新模式，将更新至最新版本"
+    else
+        # 手动更新模式，提示用户选择版本
+        latest_version=$(get_latest_version)
+        echo "当前为手动更新模式"
+        echo "最新可用版本: $latest_version"
+        echo "请选择更新方式:"
+        echo "1. 更新到最新版本 ($latest_version)"
+        echo "2. 输入特定版本号"
+
+        read -r choice </dev/tty
+
+        case $choice in
+            1)
+                target_version=$latest_version
+                ;;
+            2)
+                echo "请输入要更新到的版本号 (例如: v2.0.0):"
+                read -r target_version </dev/tty
+                ;;
+            *)
+                echo "无效选择，将使用最新版本 $latest_version"
+                target_version=$latest_version
+                ;;
+        esac
+
+        # 更新 docker-compose.yaml 文件中的版本号
+        echo "将更新到版本: $target_version"
+        sudo sed -i "s|image: ghcr.io/sillytavern/sillytavern:.*|image: ghcr.io/sillytavern/sillytavern:$target_version|g" /data/docker/sillytavem/docker-compose.yaml
+    fi
+
     cd /data/docker/sillytavem
     sudo $DOCKER_COMPOSE_CMD pull
     sudo $DOCKER_COMPOSE_CMD down
@@ -123,6 +315,7 @@ update_tavern() {
     # 检查服务状态
     check_service_status "更新并启动"
 }
+
 
 
 # 导入备份
@@ -375,12 +568,22 @@ read_auth_credentials() {
     if [ -f "/data/docker/sillytavem/config/config.yaml" ]; then
         # 从配置文件中读取用户名和密码
         enable_external_access="y"
-        username=$(grep -A 1 "username:" /data/docker/sillytavem/config/config.yaml | tail -1 | awk '{print $2}')
-        password=$(grep -A 2 "username:" /data/docker/sillytavem/config/config.yaml | tail -1 | awk '{print $2}')
+
+        # 更准确地定位和提取用户名密码
+        username=$(grep -A1 "username:" /data/docker/sillytavem/config/config.yaml | tail -1 | sed 's/^[ \t]*username:[ \t]*//g')
+        password=$(grep -A1 "password:" /data/docker/sillytavem/config/config.yaml | tail -1 | sed 's/^[ \t]*password:[ \t]*//g')
+
+        # 检查是否成功获取到了值
+        if [ -z "$username" ] || [ -z "$password" ]; then
+            # 尝试另一种格式
+            username=$(awk '/basicAuthUser:/,/enableCorsProxy:/' /data/docker/sillytavem/config/config.yaml | grep "username:" | awk '{print $2}')
+            password=$(awk '/basicAuthUser:/,/enableCorsProxy:/' /data/docker/sillytavem/config/config.yaml | grep "password:" | awk '{print $2}')
+        fi
     else
         enable_external_access="n"
     fi
 }
+
 
 # 修改账号密码
 change_credentials() {
@@ -534,42 +737,11 @@ else
     # 创建所需目录
     sudo mkdir -p /data/docker/sillytavem
 
-    # 写入docker-compose.yaml文件内容，使用最新版本并添加watchtower服务
-    cat <<EOF | sudo tee /data/docker/sillytavem/docker-compose.yaml
-version: '3.8'
+    # 询问更新模式
+    setup_update_mode
 
-services:
-  sillytavern:
-    image: ghcr.io/sillytavern/sillytavern:latest
-    container_name: sillytavern
-    networks:
-      - DockerNet
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./plugins:/home/node/app/plugins:rw
-      - ./config:/home/node/app/config:rw
-      - ./data:/home/node/app/data:rw
-      - ./extensions:/home/node/app/public/scripts/extensions/third-party:rw
-    restart: always
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-
-  # 添加watchtower服务自动更新容器
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 86400 --cleanup --label-enable # 每天检查一次更新
-    restart: always
-    networks:
-      - DockerNet
-
-networks:
-  DockerNet:
-    name: DockerNet
-EOF
+    # 创建适合的docker-compose文件
+    create_docker_compose_file "$image_tag" "$include_watchtower"
 
     # 提示用户确认是否开启外网访问
     echo "请选择是否开启外网访问"
