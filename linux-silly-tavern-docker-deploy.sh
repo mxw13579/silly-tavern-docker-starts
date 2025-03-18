@@ -120,27 +120,11 @@ update_tavern() {
     sudo $DOCKER_COMPOSE_CMD down
     sudo $DOCKER_COMPOSE_CMD up -d
 
-    # 检查服务是否成功启动
-    if [ $? -eq 0 ]; then
-        # 获取外网IP
-        public_ip=$(curl -sS https://api.ipify.org)
-        echo "SillyTavern 已成功更新并启动"
-        echo "访问地址: http://${public_ip}:8000"
-        if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
-            echo "用户名: ${username}"
-            echo "密码: ${password}"
-        fi
-        # 检查watchtower是否正常运行
-        if sudo $DOCKER_COMPOSE_CMD ps | grep -q "watchtower.*Up"; then
-            echo "自动更新服务(watchtower)已成功启动，将每天检查更新"
-        else
-            echo "自动更新服务(watchtower)启动失败，请检查日志"
-        fi
-    else
-        echo "服务启动失败，请检查日志"
-        sudo $DOCKER_COMPOSE_CMD logs
-    fi
+    # 检查服务状态
+    check_service_status "更新并启动"
 }
+
+
 # 导入备份
 import_backup() {
     echo "请选择导入方式："
@@ -227,19 +211,7 @@ import_backup() {
     sudo $DOCKER_COMPOSE_CMD up -d
 
     # 检查服务是否成功启动
-    if [ $? -eq 0 ]; then
-        # 获取外网IP
-        public_ip=$(curl -sS https://api.ipify.org)
-        echo "SillyTavern 已成功启动"
-        echo "访问地址: http://${public_ip}:8000"
-        if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
-            echo "用户名: ${username}"
-            echo "密码: ${password}"
-        fi
-    else
-        echo "服务启动失败，请检查日志"
-        sudo $DOCKER_COMPOSE_CMD logs
-    fi
+    check_service_status "导入备份"
 }
 # 启动酒馆
 start_tavern() {
@@ -247,27 +219,10 @@ start_tavern() {
     cd /data/docker/sillytavem
     sudo $DOCKER_COMPOSE_CMD up -d
 
-    # 检查服务是否成功启动
-    if [ $? -eq 0 ]; then
-        # 获取外网IP
-        public_ip=$(curl -sS https://api.ipify.org)
-        echo "SillyTavern 已成功启动"
-        echo "访问地址: http://${public_ip}:8000"
-        if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
-            echo "用户名: ${username}"
-            echo "密码: ${password}"
-        fi
-        # 检查watchtower是否正常运行
-        if sudo $DOCKER_COMPOSE_CMD ps | grep -q "watchtower.*Up"; then
-            echo "自动更新服务(watchtower)已成功启动，将每天检查更新"
-        else
-            echo "自动更新服务(watchtower)启动失败，请检查日志"
-        fi
-    else
-        echo "服务启动失败，请检查日志"
-        sudo $DOCKER_COMPOSE_CMD logs
-    fi
+    # 检查服务状态
+    check_service_status "启动"
 }
+
 
 
 # 安装Docker的函数 - Debian系统
@@ -385,6 +340,92 @@ install_docker_fedora() {
     sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 }
 
+# 检查服务状态
+check_service_status() {
+    local action_description=$1
+
+    # 检查服务是否成功启动
+    if [ $? -eq 0 ]; then
+        # 获取外网IP
+        public_ip=$(curl -sS https://api.ipify.org)
+        echo "SillyTavern 已成功${action_description}"
+        echo "访问地址: http://${public_ip}:8000"
+
+        # 读取认证信息并显示
+        read_auth_credentials
+        if [[ "$enable_external_access" == "y" ]]; then
+            echo "用户名: ${username}"
+            echo "密码: ${password}"
+        fi
+
+        # 检查watchtower是否正常运行
+        if sudo $DOCKER_COMPOSE_CMD ps | grep -q "watchtower.*Up"; then
+            echo "自动更新服务(watchtower)已成功启动，将每天检查更新"
+        else
+            echo "自动更新服务(watchtower)启动失败，请检查日志"
+        fi
+    else
+        echo "服务${action_description}失败，请检查日志"
+        sudo $DOCKER_COMPOSE_CMD logs
+    fi
+}
+
+# 从配置文件中读取认证信息
+read_auth_credentials() {
+    if [ -f "/data/docker/sillytavem/config/config.yaml" ]; then
+        # 从配置文件中读取用户名和密码
+        enable_external_access="y"
+        username=$(grep -A 1 "username:" /data/docker/sillytavem/config/config.yaml | tail -1 | awk '{print $2}')
+        password=$(grep -A 2 "username:" /data/docker/sillytavem/config/config.yaml | tail -1 | awk '{print $2}')
+    else
+        enable_external_access="n"
+    fi
+}
+
+# 修改账号密码
+change_credentials() {
+    echo "修改账号密码..."
+
+    # 确保配置目录存在
+    sudo mkdir -p /data/docker/sillytavem/config
+
+    # 如果配置文件不存在，先创建基本配置
+    if [ ! -f "/data/docker/sillytavem/config/config.yaml" ]; then
+        echo "未找到现有配置文件，将创建新配置..."
+        cat <<EOF | sudo tee /data/docker/sillytavem/config/config.yaml
+# TODO: 基础配置内容
+basicAuthMode: true
+basicAuthUser:
+  username: admin
+  password: admin
+EOF
+    fi
+
+    # 获取新的认证信息
+    echo -n "请输入新用户名(不可以使用纯数字): "
+    read -r new_username </dev/tty
+    echo -n "请输入新密码(不可以使用纯数字): "
+    read -r new_password </dev/tty
+
+    # 更新配置文件中的用户名密码
+    sudo sed -i "s/username:.*$/username: $new_username/" /data/docker/sillytavem/config/config.yaml
+    sudo sed -i "s/password:.*$/password: $new_password/" /data/docker/sillytavem/config/config.yaml
+
+    echo "账号密码已更新"
+    echo "用户名: $new_username"
+    echo "密码: $new_password"
+
+    # 重启服务以应用新配置
+    echo "重启服务以应用新配置..."
+    sudo $DOCKER_COMPOSE_CMD restart
+
+    # 检查服务状态
+    check_service_status "重启"
+}
+
+
+
+
 # 主安装流程
 echo "当前操作系统类型为 $OS"
 
@@ -440,281 +481,6 @@ fi
 # 设置 docker compose 命令
 setup_docker_compose
 
-# 创建所需目录
-sudo mkdir -p /data/docker/sillytavem
-
-# 写入docker-compose.yaml文件内容，使用最新版本并添加watchtower服务
-cat <<EOF | sudo tee /data/docker/sillytavem/docker-compose.yaml
-version: '3.8'
-
-services:
-  sillytavern:
-    image: ghcr.io/sillytavern/sillytavern:latest
-    container_name: sillytavern
-    networks:
-      - DockerNet
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./plugins:/home/node/app/plugins:rw
-      - ./config:/home/node/app/config:rw
-      - ./data:/home/node/app/data:rw
-      - ./extensions:/home/node/app/public/scripts/extensions/third-party:rw
-    restart: always
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-
-  # 添加watchtower服务自动更新容器
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 86400 --cleanup --label-enable # 每天检查一次更新
-    restart: always
-    networks:
-      - DockerNet
-
-networks:
-  DockerNet:
-    name: DockerNet
-EOF
-
-# 提示用户确认是否开启外网访问
-echo "请选择是否开启外网访问"
-while true; do
-    echo -n "是否开启外网访问？(y/n): "
-    read -r response </dev/tty
-    case $response in
-        [Yy]* )
-            enable_external_access="y"
-            break
-            ;;
-        [Nn]* )
-            enable_external_access="n"
-            break
-            ;;
-        * )
-            echo "请输入 y 或 n"
-            ;;
-    esac
-done
-
-# 确保显示用户的选择
-echo "您选择了: $([ "$enable_external_access" = "y" ] && echo "开启" || echo "不开启")外网访问"
-
-# 生成随机字符串的函数
-generate_random_string() {
-    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16
-}
-
-if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
-    # 让用户选择用户名密码的生成方式
-    echo "请选择用户名密码的生成方式:"
-    echo "1. 随机生成"
-    echo "2. 手动输入(推荐)"
-    while true; do
-        read -r choice </dev/tty
-        case $choice in
-            1)
-                username=$(generate_random_string)
-                password=$(generate_random_string)
-                echo "已生成随机用户名: $username"
-                echo "已生成随机密码: $password"
-                break
-                ;;
-            2)
-                echo -n "请输入用户名(不可以使用纯数字): "
-                read -r username </dev/tty
-                echo -n "请输入密码(不可以使用纯数字): "
-                read -r password </dev/tty
-                break
-                ;;
-            *)
-                echo "请输入 1 或 2"
-                ;;
-        esac
-    done
-
-    # 创建config目录和配置文件
-    sudo mkdir -p /data/docker/sillytavem/config
-    cat <<EOF | sudo tee /data/docker/sillytavem/config/config.yaml
-dataRoot: ./data
-cardsCacheCapacity: 100
-listen: true
-protocol:
-  ipv4: true
-  ipv6: false
-dnsPreferIPv6: false
-autorunHostname: auto
-port: 8000
-autorunPortOverride: -1
-whitelistMode: false
-enableForwardedWhitelist: true
-whitelist:
-  - ::1
-  - 127.0.0.1
-  - 0.0.0.0
-basicAuthMode: true
-basicAuthUser:
-  username: $username
-  password: $password
-enableCorsProxy: false
-requestProxy:
-  enabled: false
-  url: socks5://username:password@example.com:1080
-  bypass:
-    - localhost
-    - 127.0.0.1
-enableUserAccounts: false
-enableDiscreetLogin: false
-autheliaAuth: false
-perUserBasicAuth: false
-sessionTimeout: 86400
-cookieSecret: 6XgkD9H+Foh+h9jVCbx7bEumyZuYtc5RVzKMEc+ORjDGOAvfWVjfPGyRmbFSVPjdy8ofG3faMe8jDf+miei0yQ==
-disableCsrfProtection: false
-securityOverride: false
-autorun: true
-avoidLocalhost: false
-backups:
-  common:
-    numberOfBackups: 50
-  chat:
-    enabled: true
-    maxTotalBackups: -1
-    throttleInterval: 10000
-thumbnails:
-  enabled: true
-  format: jpg
-  quality: 95
-  dimensions:
-    bg:
-      - 160
-      - 90
-    avatar:
-      - 96
-      - 144
-allowKeysExposure: false
-skipContentCheck: false
-whitelistImportDomains:
-  - localhost
-  - cdn.discordapp.com
-  - files.catbox.moe
-  - raw.githubusercontent.com
-requestOverrides: []
-enableExtensions: true
-enableExtensionsAutoUpdate: true
-enableDownloadableTokenizers: true
-extras:
-  disableAutoDownload: false
-  classificationModel: Cohee/distilbert-base-uncased-go-emotions-onnx
-  captioningModel: Xenova/vit-gpt2-image-captioning
-  embeddingModel: Cohee/jina-embeddings-v2-base-en
-  speechToTextModel: Xenova/whisper-small
-  textToSpeechModel: Xenova/speecht5_tts
-promptPlaceholder: "[Start a new chat]"
-openai:
-  randomizeUserId: false
-  captionSystemPrompt: ""
-deepl:
-  formality: default
-mistral:
-  enablePrefix: false
-ollama:
-  keepAlive: -1
-claude:
-  enableSystemPromptCache: false
-  cachingAtDepth: -1
-enableServerPlugins: false
-EOF
-
-    echo "已开启外网访问"
-    echo "用户名: $username"
-    echo "密码: $password"
-else
-    echo "未开启外网访问，将使用默认配置。"
-fi
-
-# 创建备份脚本以便将来使用
-cat <<EOF | sudo tee /data/docker/sillytavem/backup.sh
-#!/bin/bash
-
-# 设置变量
-backup_dir="/data/docker/sillytavem"
-backups_folder="${backup_dir}/backups"
-timestamp=$(date +"%Y%m%d_%H%M%S")
-backup_file="${backups_folder}/sillytavern_data_backup_${timestamp}"
-
-# 确保备份目录存在
-mkdir -p "${backups_folder}"
-
-echo "正在创建数据备份..."
-
-# 检查数据目录是否存在
-if [ ! -d "${backup_dir}/data" ]; then
-    echo "错误: 数据目录不存在 (${backup_dir}/data)"
-    exit 1
-fi
-
-# 尝试使用tar进行备份（大多数Linux系统都预装了tar）
-if command -v tar &> /dev/null; then
-    echo "使用tar创建备份..."
-    cd "${backup_dir}" && sudo tar -czf "${backup_file}.tar.gz" data/
-
-    if [ $? -eq 0 ]; then
-        sudo chmod 644 "${backup_file}.tar.gz"
-        echo "备份成功创建: ${backup_file}.tar.gz"
-        echo "您可以使用以下命令下载备份文件:"
-        echo "scp <用户名>@<服务器IP>:${backup_file}.tar.gz ."
-        exit 0
-    else
-        echo "使用tar备份失败，将尝试其他方法..."
-    fi
-fi
-
-# 如果tar失败，尝试使用zip
-if ! command -v zip &> /dev/null; then
-    echo "正在尝试安装zip工具..."
-
-    if command -v apt-get &> /dev/null; then
-        # 对于Debian/Ubuntu系统，跳过错误继续执行
-        sudo apt-get update || true
-        sudo apt-get install -y zip || true
-    elif command -v yum &> /dev/null; then
-        sudo yum install -y zip || true
-    elif command -v dnf &> /dev/null; then
-        sudo dnf install -y zip || true
-    elif command -v pacman &> /dev/null; then
-        sudo pacman -S --noconfirm zip || true
-    elif command -v apk &> /dev/null; then
-        sudo apk add zip || true
-    else
-        echo "无法找到适用的包管理器安装zip工具"
-    fi
-fi
-
-# 再次检查zip是否可用
-if command -v zip &> /dev/null; then
-    echo "使用zip创建备份..."
-    cd "${backup_dir}" && sudo zip -r "${backup_file}.zip" data/
-
-    if [ $? -eq 0 ]; then
-        sudo chmod 644 "${backup_file}.zip"
-        echo "备份成功创建: ${backup_file}.zip"
-        echo "您可以使用以下命令下载备份文件:"
-        echo "scp <用户名>@<服务器IP>:${backup_file}.zip ."
-        exit 0
-    fi
-fi
-
-# 所有备份方法都失败
-echo "备份创建失败，所有可用的备份方法都失败了"
-exit 1
-
-EOF
-
-# 使备份脚本可执行
-sudo chmod +x /data/docker/sillytavem/backup.sh
 
 # 检查Docker和Docker Compose是否可用
 if command -v docker-compose &> /dev/null; then
@@ -725,10 +491,9 @@ else
     echo "未找到docker-compose或docker compose命令，请安装Docker和Docker Compose"
     exit 1
 fi
-# 立即检查是否已有安装
+# 检查是否已有安装
 if check_existing_installation; then
     echo "检测到已存在的SillyTavern安装"
-    cd /data/docker/sillytavem
     current_version=$(get_current_version)
     latest_version=$(get_latest_version)
 
@@ -739,7 +504,8 @@ if check_existing_installation; then
     echo "1. 更新酒馆"
     echo "2. 备份数据"
     echo "3. 导入备份"
-    echo "4. 启动酒馆"
+    echo "4. 修改账号密码"
+    echo "5. 启动酒馆"
     read -r choice </dev/tty
 
     case $choice in
@@ -753,6 +519,9 @@ if check_existing_installation; then
             import_backup
             ;;
         4)
+            change_credentials
+            ;;
+        5)
             start_tavern
             ;;
         *)
@@ -861,7 +630,93 @@ EOF
         # 创建config目录和配置文件
         sudo mkdir -p /data/docker/sillytavem/config
         cat <<EOF | sudo tee /data/docker/sillytavem/config/config.yaml
-# TODO: config.yaml内容此处省略
+dataRoot: ./data
+cardsCacheCapacity: 100
+listen: true
+protocol:
+  ipv4: true
+  ipv6: false
+dnsPreferIPv6: false
+autorunHostname: auto
+port: 8000
+autorunPortOverride: -1
+whitelistMode: false
+enableForwardedWhitelist: true
+whitelist:
+  - ::1
+  - 127.0.0.1
+  - 0.0.0.0
+basicAuthMode: true
+basicAuthUser:
+  username: $username
+  password: $password
+enableCorsProxy: false
+requestProxy:
+  enabled: false
+  url: socks5://username:password@example.com:1080
+  bypass:
+    - localhost
+    - 127.0.0.1
+enableUserAccounts: false
+enableDiscreetLogin: false
+autheliaAuth: false
+perUserBasicAuth: false
+sessionTimeout: 86400
+cookieSecret: 6XgkD9H+Foh+h9jVCbx7bEumyZuYtc5RVzKMEc+ORjDGOAvfWVjfPGyRmbFSVPjdy8ofG3faMe8jDf+miei0yQ==
+disableCsrfProtection: false
+securityOverride: false
+autorun: true
+avoidLocalhost: false
+backups:
+  common:
+    numberOfBackups: 50
+  chat:
+    enabled: true
+    maxTotalBackups: -1
+    throttleInterval: 10000
+thumbnails:
+  enabled: true
+  format: jpg
+  quality: 95
+  dimensions:
+    bg:
+      - 160
+      - 90
+    avatar:
+      - 96
+      - 144
+allowKeysExposure: false
+skipContentCheck: false
+whitelistImportDomains:
+  - localhost
+  - cdn.discordapp.com
+  - files.catbox.moe
+  - raw.githubusercontent.com
+requestOverrides: []
+enableExtensions: true
+enableExtensionsAutoUpdate: true
+enableDownloadableTokenizers: true
+extras:
+  disableAutoDownload: false
+  classificationModel: Cohee/distilbert-base-uncased-go-emotions-onnx
+  captioningModel: Xenova/vit-gpt2-image-captioning
+  embeddingModel: Cohee/jina-embeddings-v2-base-en
+  speechToTextModel: Xenova/whisper-small
+  textToSpeechModel: Xenova/speecht5_tts
+promptPlaceholder: "[Start a new chat]"
+openai:
+  randomizeUserId: false
+  captionSystemPrompt: ""
+deepl:
+  formality: default
+mistral:
+  enablePrefix: false
+ollama:
+  keepAlive: -1
+claude:
+  enableSystemPromptCache: false
+  cachingAtDepth: -1
+enableServerPlugins: false
 EOF
 
         echo "已开启外网访问"
@@ -911,8 +766,6 @@ cd "\${backup_dir}" && sudo zip -r "\${backup_file}" data/
 if [ \$? -eq 0 ]; then
     sudo chmod 644 "\${backup_file}"
     echo "备份成功创建: \${backup_file}"
-    echo "您可以使用以下命令下载备份文件:"
-    echo "scp <用户名>@<服务器IP>:\${backup_file} ."
 else
     echo "备份创建失败，请检查错误信息"
     exit 1
