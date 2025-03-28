@@ -268,7 +268,6 @@ version: '3.8'
 
 services:
   sillytavern:
-    image: ghcr.io/sillytavern/sillytavern:1.12.11
     image: ghcr.io/sillytavern/sillytavern:latest
     container_name: sillytavern
     networks:
