@@ -8,6 +8,15 @@ NC='\033[0m' # No Color
 
 echo -e "${YELLOW}开始配置MySQL到Cloudflare R2的备份服务...${NC}"
 
+# 检查是否在交互式终端中运行
+if [ -t 0 ]; then
+    INTERACTIVE=true
+else
+    INTERACTIVE=false
+    echo -e "${YELLOW}非交互模式检测，将使用默认设置或环境变量。${NC}"
+    echo -e "${YELLOW}如需交互式配置，请直接运行脚本: ./script.sh${NC}"
+fi
+
 # 指定项目根目录
 PROJECT_DIR="/data/docker/new-api"
 echo -e "${GREEN}项目目录: $PROJECT_DIR${NC}"
@@ -16,22 +25,42 @@ echo -e "${GREEN}项目目录: $PROJECT_DIR${NC}"
 mkdir -p $PROJECT_DIR
 
 # 获取MySQL配置
-echo -e "${YELLOW}请输入MySQL配置信息:${NC}"
-read -p "MySQL用户名 [root]: " MYSQL_USER
-MYSQL_USER=${MYSQL_USER:-root}
+if [ "$INTERACTIVE" = true ]; then
+    echo -e "${YELLOW}请输入MySQL配置信息:${NC}"
+    read -p "MySQL用户名 [root]: " MYSQL_USER
+    MYSQL_USER=${MYSQL_USER:-root}
 
-read -p "MySQL密码 [123456]: " MYSQL_PASSWORD
-MYSQL_PASSWORD=${MYSQL_PASSWORD:-123456}
+    read -p "MySQL密码 [123456]: " MYSQL_PASSWORD
+    MYSQL_PASSWORD=${MYSQL_PASSWORD:-123456}
 
-read -p "MySQL数据库名 [new-api]: " MYSQL_DATABASE
-MYSQL_DATABASE=${MYSQL_DATABASE:-new-api}
+    read -p "MySQL数据库名 [new-api]: " MYSQL_DATABASE
+    MYSQL_DATABASE=${MYSQL_DATABASE:-new-api}
+else
+    # 使用环境变量或默认值
+    MYSQL_USER=${MYSQL_USER:-root}
+    MYSQL_PASSWORD=${MYSQL_PASSWORD:-123456}
+    MYSQL_DATABASE=${MYSQL_DATABASE:-new-api}
+    echo -e "${GREEN}使用MySQL配置: 用户=$MYSQL_USER, 数据库=$MYSQL_DATABASE${NC}"
+fi
 
 # 获取Cloudflare R2配置
-echo -e "${YELLOW}请输入Cloudflare R2配置信息:${NC}"
-read -p "R2 Access Key: " R2_ACCESS_KEY
-read -p "R2 Secret Key: " R2_SECRET_KEY
-read -p "R2 Bucket Name: " R2_BUCKET
-read -p "R2 Endpoint (例如: https://xxxx.r2.cloudflarestorage.com): " R2_ENDPOINT
+if [ "$INTERACTIVE" = true ]; then
+    echo -e "${YELLOW}请输入Cloudflare R2配置信息:${NC}"
+    read -p "R2 Access Key: " R2_ACCESS_KEY
+    read -p "R2 Secret Key: " R2_SECRET_KEY
+    read -p "R2 Bucket Name: " R2_BUCKET
+    read -p "R2 Endpoint (例如: https://xxxx.r2.cloudflarestorage.com): " R2_ENDPOINT
+else
+    # 使用环境变量
+    if [ -z "$R2_ACCESS_KEY" ] || [ -z "$R2_SECRET_KEY" ] || [ -z "$R2_BUCKET" ] || [ -z "$R2_ENDPOINT" ]; then
+        echo -e "${RED}错误: 非交互模式下必须设置以下环境变量:${NC}"
+        echo -e "${RED}R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET, R2_ENDPOINT${NC}"
+        echo -e "${YELLOW}例如:${NC}"
+        echo -e "R2_ACCESS_KEY=your_key R2_SECRET_KEY=your_secret R2_BUCKET=your_bucket R2_ENDPOINT=https://xxx.r2.cloudflarestorage.com curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/linux-deploy-new-api-r2.sh | bash"
+        exit 1
+    fi
+    echo -e "${GREEN}使用R2配置: Bucket=$R2_BUCKET${NC}"
+fi
 
 # 创建必要的目录
 echo -e "${GREEN}创建必要的目录...${NC}"
@@ -260,60 +289,4 @@ fi
 
 # 显示备份列表，按日期排序（最新的在上面）
 echo -e "\${GREEN}可用备份:${NC}"
-echo "\$BACKUP_LIST" | sort -r | nl
-
-# 询问要恢复的备份编号
-echo -e "\${YELLOW}请输入要恢复的备份编号 (1是最新备份):${NC}"
-read -p "编号: " BACKUP_NUMBER
-
-# 验证输入
-if ! [[ "\$BACKUP_NUMBER" =~ ^[0-9]+$ ]]; then
-    echo -e "\${RED}错误: 请输入有效的数字${NC}"
-    exit 1
-fi
-
-# 获取选择的备份文件名
-SELECTED_BACKUP=\$(echo "\$BACKUP_LIST" | sort -r | sed -n "\${BACKUP_NUMBER}p")
-
-if [ -z "\$SELECTED_BACKUP" ]; then
-    echo -e "\${RED}错误: 无效的备份编号${NC}"
-    exit 1
-fi
-
-echo -e "\${GREEN}您选择的备份: \$SELECTED_BACKUP${NC}"
-
-# 询问确认
-read -p "确认恢复此备份? 这将覆盖当前数据库内容! (y/n): " CONFIRM
-if [[ "\$CONFIRM" != "y" && "\$CONFIRM" != "Y" ]]; then
-    echo -e "\${YELLOW}操作已取消${NC}"
-    exit 0
-fi
-
-# 下载并恢复备份
-echo -e "\${YELLOW}正在从R2下载备份...${NC}"
-docker exec mysql-backup rclone copy cloudflare:\$R2_BUCKET/mysql_backups/\$SELECTED_BACKUP /backup/
-
-if [ \$? -ne 0 ]; then
-    echo -e "\${RED}下载备份失败${NC}"
-    exit 1
-fi
-
-echo -e "\${YELLOW}正在恢复数据库...${NC}"
-docker exec mysql-backup sh -c "gunzip -c /backup/\$SELECTED_BACKUP | mysql -h mysql -u \$MYSQL_USER -p\$MYSQL_PASSWORD \$MYSQL_DATABASE"
-
-if [ \$? -eq 0 ]; then
-    echo -e "\${GREEN}数据库恢复成功!${NC}"
-else
-    echo -e "\${RED}数据库恢复失败!${NC}"
-    exit 1
-fi
-
-echo -e "\${GREEN}操作完成${NC}"
-EOF
-
-chmod +x $PROJECT_DIR/restore-mysql-backup.sh
-
-echo -e "${GREEN}配置完成！${NC}"
-echo -e "${YELLOW}系统已配置：${NC}"
-echo -e "1. 每10分钟备份一次MySQL数据到Cloudflare R2"
-echo -
+echo "\$
