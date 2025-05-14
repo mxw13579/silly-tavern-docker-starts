@@ -6,6 +6,16 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+
+if command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo -e "${RED}错误：系统中既没有 docker-compose 也没有 docker compose，请先安装 Docker Compose${NC}"
+    exit 1
+fi
+
 echo -e "${YELLOW}开始配置MySQL到Cloudflare R2的备份服务...${NC}"
 
 # 检查是否在交互式终端中运行
@@ -368,7 +378,7 @@ if [ "$INTERACTIVE" = true ]; then
     read -p "是否立即启动服务？(y/n): " START_SERVICE
     if [[ "$START_SERVICE" == "y" || "$START_SERVICE" == "Y" ]]; then
         echo -e "${GREEN}启动服务...${NC}"
-        cd $PROJECT_DIR && docker-compose down && docker-compose up -d
+        cd $PROJECT_DIR && $DOCKER_COMPOSE down && $DOCKER_COMPOSE up -d
 
         echo -e "${GREEN}服务已启动！${NC}"
         echo -e "${YELLOW}您可以通过以下命令检查备份服务状态：${NC}"
@@ -380,7 +390,7 @@ if [ "$INTERACTIVE" = true ]; then
 else
     # 非交互模式下自动启动服务
     echo -e "${GREEN}自动启动服务...${NC}"
-    cd $PROJECT_DIR && docker-compose down && docker-compose up -d
+    cd $PROJECT_DIR && $DOCKER_COMPOSE down && $DOCKER_COMPOSE up -d
     echo -e "${GREEN}服务已启动！${NC}"
 fi
 
