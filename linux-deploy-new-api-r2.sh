@@ -247,7 +247,7 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: ${PROJECT_DIR}/mysql
+      device: $PROJECT_DIR/mysql
 EOF
 
 # 创建恢复脚本
@@ -289,4 +289,27 @@ fi
 
 # 显示备份列表，按日期排序（最新的在上面）
 echo -e "\${GREEN}可用备份:${NC}"
-echo "\$
+echo "\$BACKUP_LIST" | sort -r | nl
+
+# 询问要恢复的备份编号
+echo -e "\${YELLOW}请输入要恢复的备份编号 (1是最新备份):${NC}"
+read -p "编号: " BACKUP_NUMBER
+
+# 验证输入
+if ! [[ "\$BACKUP_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo -e "\${RED}错误: 请输入有效的数字${NC}"
+    exit 1
+fi
+
+# 获取选择的备份文件名
+SELECTED_BACKUP=\$(echo "\$BACKUP_LIST" | sort -r | sed -n "\${BACKUP_NUMBER}p")
+
+if [ -z "\$SELECTED_BACKUP" ]; then
+    echo -e "\${RED}错误: 无效的备份编号${NC}"
+    exit 1
+fi
+
+echo -e "\${GREEN}您选择的备份: \$SELECTED_BACKUP${NC}"
+
+# 询问确认
+read -
