@@ -41,21 +41,23 @@ PROJECT_DIR="/data/docker/new-api"
 mkdir -p "$PROJECT_DIR"
 echo -e "${GREEN}项目目录: $PROJECT_DIR${NC}"
 
-#---------------- MySQL 配置 -----------------------
+# ---------- MySQL 配置 ----------
 if $INTERACTIVE; then
-    read -p "MySQL 用户名 [root]: " MYSQL_USER
-    MYSQL_USER=${MYSQL_USER:-root}
-
-    read -p "MySQL 密码 [123456]: " MYSQL_PASSWORD
-    MYSQL_PASSWORD=${MYSQL_PASSWORD:-123456}
-
+    read -p "MySQL ROOT 密码 [123456]: " MYSQL_ROOT_PASSWORD
+    MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-123456}
+    read -p "应用层数据库用户名 [app]: " MYSQL_USER
+    MYSQL_USER=${MYSQL_USER:-app}
+    read -p "该用户密码 [apppwd]: " MYSQL_PASSWORD
+    MYSQL_PASSWORD=${MYSQL_PASSWORD:-apppwd}
     read -p "MySQL 数据库名 [new-api]: " MYSQL_DATABASE
     MYSQL_DATABASE=${MYSQL_DATABASE:-new-api}
 else
-    MYSQL_USER=${MYSQL_USER:-root}
-    MYSQL_PASSWORD=${MYSQL_PASSWORD:-123456}
+    MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-123456}
+    MYSQL_USER=${MYSQL_USER:-app}
+    MYSQL_PASSWORD=${MYSQL_PASSWORD:-apppwd}
     MYSQL_DATABASE=${MYSQL_DATABASE:-new-api}
 fi
+
 echo -e "${GREEN}MySQL => 用户:$MYSQL_USER  数据库:$MYSQL_DATABASE${NC}"
 
 #---------------- Cloudflare R2 配置 ---------------
@@ -181,7 +183,7 @@ services:
       - ./data:/data
       - ./logs:/app/logs
     environment:
-      - SQL_DSN=$MYSQL_USER:$MYSQL_PASSWORD@tcp(mysql:3306)/$MYSQL_DATABASE
+      - SQL_DSN="${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE}"
       - REDIS_CONN_STRING=redis://redis
       - TZ=Asia/Shanghai
     depends_on:
@@ -198,10 +200,12 @@ services:
     container_name: mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: $MYSQL_PASSWORD
-      MYSQL_DATABASE: $MYSQL_DATABASE
-      MYSQL_USER: $MYSQL_USER
-      MYSQL_PASSWORD: $MYSQL_PASSWORD
+      # root 口令
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      # 业务帐号（非 root）
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
 
@@ -214,16 +218,15 @@ services:
       - ./backup-scripts:/scripts
     environment:
       - MYSQL_HOST=mysql
-      - MYSQL_USER=$MYSQL_USER
-      - MYSQL_PASSWORD=$MYSQL_PASSWORD
-      - MYSQL_DATABASE=$MYSQL_DATABASE
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
       - TZ=Asia/Shanghai
     depends_on:
       - mysql
     command: >
-      sh -c "apk add --no-cache mysql-client gzip curl tzdata &&
+      sh -c "apk add --no-cache mysql-client gzip curl tzdata rclone &&
              cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime &&
-             curl -s https://rclone.org/install.sh | sh &&
              cp /scripts/backup.sh /usr/local/bin/backup.sh &&
              chmod +x /usr/local/bin/backup.sh &&
              /scripts/setup-cron.sh"
