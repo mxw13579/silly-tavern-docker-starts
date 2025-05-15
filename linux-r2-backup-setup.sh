@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# r2-backup-setup.sh  (兼安装 / 升级 / 恢复)
+# r2-backup-setup.sh   (安装 / 升级 / 恢复 一体)
 set -e
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
@@ -14,7 +14,7 @@ need_root() { [ "$(id -u)" -eq 0 ] || { echo -e "${RED}请以 root 执行${NC}";
 need_root
 
 #--------------------------------------------------#
-# A. 若已安装 => 询问处理方式
+# A. 已安装 => 询问处理方式
 #--------------------------------------------------#
 if [ -f "$BACKUP_SH" ] && systemctl list-unit-files | grep -q r2-backup.timer; then
   echo -e "${GREEN}已检测到现有备份服务 (r2-backup.timer)${NC}"
@@ -55,8 +55,8 @@ KEEP=${KEEP:-10}
 if ! command -v unzip >/dev/null; then
   echo "installing unzip..."
   if command -v apt-get >/dev/null; then sudo apt-get install -y unzip;
-  elif command -v yum >/dev/null; then sudo yum install -y unzip;
-  elif command -v apk >/dev/null; then sudo apk add unzip; fi
+  elif command -v yum     >/dev/null; then sudo yum  install -y unzip;
+  elif command -v apk     >/dev/null; then sudo apk  add unzip; fi
 fi
 
 if ! command -v rclone >/dev/null; then
@@ -83,7 +83,6 @@ if rclone lsf "$REMOTE_NAME:$R2_BUCKET/backups/" --format p 2>/dev/null | grep -
   echo -e "${YELLOW}检测到 R2/backups 目录已有数据${NC}"
   read -rp "$(echo -e ${YELLOW}是否立即进入恢复流程?[y/N]: ${NC})" NEED_RESTORE
   if [[ $NEED_RESTORE =~ ^[Yy]$ ]]; then
-    # 生成临时恢复脚本所需占位符并执行一次恢复脚本
     export __TMP_REMOTE=$REMOTE_NAME __TMP_BUCKET=$R2_BUCKET
     bash -c '
       TMP=/tmp/tmp-restore.sh
@@ -91,8 +90,9 @@ if rclone lsf "$REMOTE_NAME:$R2_BUCKET/backups/" --format p 2>/dev/null | grep -
 #!/usr/bin/env bash
 REMOTE="$__TMP_REMOTE"; BUCKET="$__TMP_BUCKET"
 rclone lsf "\$REMOTE:\$BUCKET/backups/" --format p | nl
-echo 仅查看列表，完整恢复请等新脚本生成后运行
-EOF'; unset __TMP_REMOTE __TMP_BUCKET
+echo "仅查看列表，完整恢复请等新脚本生成后运行"
+EOF'
+    unset __TMP_REMOTE __TMP_BUCKET
   fi
 fi
 
@@ -101,7 +101,7 @@ fi
 #--------------------------------------------------#
 mkdir -p "$BASE_DIR"
 
-# 1. 备份脚本
+# 1. 生成备份脚本
 cat > "$BACKUP_SH" <<'BACKUP_EOF'
 #!/usr/bin/env bash
 set -e
@@ -138,9 +138,15 @@ sed -i -e "s|__TARGET_PATH__|$TARGET_PATH|g" \
        -e "s|__BUCKET__|$R2_BUCKET|g" \
        -e "s|__KEEP__|$KEEP|g" "$BACKUP_SH"
 
-# 2. systemd unit/timer
+# 2. 生成 systemd unit/timer
 SYSD="${PERIOD: -1}"; NUM="${PERIOD%$SYSD}"
-case $SYSD in s) SYSP="${NUM}sec";; m) SYSP="${NUM}min";; h) SYSP="${NUM}hour";; d) SYSP="${NUM}day";; w) SYSP="${NUM}week";; esac
+case $SYSD in
+  s) SYSP="${NUM}sec"  ;;
+  m) SYSP="${NUM}min"  ;;
+  h) SYSP="${NUM}hour" ;;
+  d) SYSP="${NUM}day"  ;;
+  w) SYSP="${NUM}week" ;;
+esac
 
 cat > "$SERVICE" <<EOF
 [Unit]
@@ -167,16 +173,23 @@ EOF
 systemctl daemon-reload
 systemctl enable --now r2-backup.timer
 
-# 3. 恢复脚本
+# 3. 生成恢复脚本（已修复 backup-info.txt 缺失问题）
 cat > "$RESTORE_SH" <<'RESTORE_EOF'
 #!/usr/bin/env bash
 set -e
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 REMOTE="__REMOTE__"; BUCKET="__BUCKET__"
-TMP=/tmp/r2-restore; mkdir -p $TMP
+TMP=/tmp/r2-restore; mkdir -p "$TMP"
 
-rclone copy "$REMOTE:$BUCKET/config/backup-info.txt" $TMP --quiet
-source $TMP/backup-info.txt || { echo -e "${RED}无法读取 config/backup-info.txt${NC}"; exit 1; }
+# 1) 尝试下载 backup-info.txt；若不存在，则提示用户手动输入
+if rclone copy "$REMOTE:$BUCKET/config/backup-info.txt" "$TMP" --quiet 2>/dev/null; then
+  source "$TMP/backup-info.txt"
+  echo -e "${GREEN}已读取配置文件，目标路径: $TARGET_PATH${NC}"
+else
+  echo -e "${YELLOW}未找到 config/backup-info.txt (可能是旧版备份)${NC}"
+  read -rp "请输入要恢复到的绝对路径: " TARGET_PATH
+  [ -z "$TARGET_PATH" ] && { echo -e "${RED}必须指定目标路径${NC}"; exit 1; }
+fi
 
 echo -e "目标路径: $TARGET_PATH"
 LIST=$(rclone lsf "$REMOTE:$BUCKET/backups/" --format p | sort -r)
@@ -188,10 +201,11 @@ SEL=$(echo "$LIST" | sed -n "${NO}p")
 [ -z "$SEL" ] && { echo -e "${RED}编号无效${NC}"; exit 1; }
 
 read -rp "确认恢复 $SEL ? (y/N): " C
-[[ $C != y && $C != Y ]] && exit 0
+[[ ! "$C" =~ ^[Yy]$ ]] && exit 0
 
-rclone copy "$REMOTE:$BUCKET/backups/$SEL" $TMP --quiet
+rclone copy "$REMOTE:$BUCKET/backups/$SEL" "$TMP" --quiet
 tar -xzf "$TMP/$SEL" -C "$(dirname "$TARGET_PATH")"
+
 echo -e "${GREEN}恢复完成${NC}"
 RESTORE_EOF
 chmod +x "$RESTORE_SH"
