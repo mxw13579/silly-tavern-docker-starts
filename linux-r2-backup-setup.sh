@@ -52,6 +52,13 @@ KEEP=${KEEP:-10}
 #--------------------------------------------------#
 # C. 安装 rclone (若无)
 #--------------------------------------------------#
+if ! command -v unzip >/dev/null; then
+  echo "installing unzip..."
+  if command -v apt-get >/dev/null; then sudo apt-get install -y unzip;
+  elif command -v yum >/dev/null; then sudo yum install -y unzip;
+  elif command -v apk >/dev/null; then sudo apk add unzip; fi
+fi
+
 if ! command -v rclone >/dev/null; then
   echo -e "${YELLOW}安装 rclone ...${NC}"
   curl -fsSL https://rclone.org/install.sh | bash
