@@ -258,7 +258,7 @@ if ! docker ps | grep -q mysql-backup; then
 fi
 
 echo -e "${GREEN}从 R2 读取备份列表...${NC}"
-LIST=$(docker exec mysql-backup rclone lsf cloudflare:$R2_BUCKET/mysql_backups/ --format "tp" | sort -r)
+LIST=$(docker exec mysql-backup rclone lsf cloudflare:$R2_BUCKET/mysql_backups/ --format "p" | sort -r)
 [ -z "$LIST" ] && { echo -e "${RED}没有备份文件${NC}"; exit 1; }
 
 echo "$LIST" | nl
