@@ -164,7 +164,6 @@ set -e
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 REMOTE="__REMOTE__"; BUCKET="__BUCKET__"
 TMP=/tmp/r2-restore; mkdir -p "$TMP"
-
 # 读取 config/backup-info.txt
 if rclone copy "$REMOTE:$BUCKET/config/backup-info.txt" "$TMP" --quiet 2>/dev/null; then
   source "$TMP/backup-info.txt"
@@ -173,31 +172,33 @@ if rclone copy "$REMOTE:$BUCKET/config/backup-info.txt" "$TMP" --quiet 2>/dev/nu
 else
   echo -e "${YELLOW}未找到 config/backup-info.txt${NC}"
 fi
-
-while true; do
-  echo -e "${YELLOW}恢复目录(回车使用 $TARGET_PATH):${NC}"
-  read -rp " " NEW
-  [ -z "$NEW" ] && NEW=$TARGET_PATH
-  [ -z "$NEW" ] && { echo -e "${RED}必须指定目录${NC}"; continue; }
-  TARGET_PATH=$NEW
-  break
-done
-
+# 修复部分开始 - 使用分开的echo和read
+echo -e "${YELLOW}恢复目录(回车使用 $TARGET_PATH):${NC}"
+read -rp " " NEW
+[ -z "$NEW" ] && NEW=$TARGET_PATH
+[ -z "$NEW" ] && { echo -e "${RED}必须指定目录${NC}"; exit 1; }
+TARGET_PATH=$NEW
 LIST=$(rclone lsf "$REMOTE:$BUCKET/backups/" --format p 2>/dev/null | sort -r)
 [ -z "$LIST" ] && { echo -e "${RED}远端无可用备份${NC}"; exit 1; }
-
-echo -e "${GREEN}可用备份:${NC}"; echo "$LIST" | nl
-read -rp "$(echo -e ${YELLOW}选择编号: ${NC})" IDX
+echo -e "${GREEN}可用备份:${NC}"
+echo "$LIST" | nl
+echo -e "${YELLOW}选择编号:${NC}"
+read -rp " " IDX
 SEL=$(echo "$LIST" | sed -n "${IDX}p")
 [ -z "$SEL" ] && { echo -e "${RED}编号无效${NC}"; exit 1; }
-
-read -rp "$(echo -e ${YELLOW}确认恢复 $SEL ? (y/N): ${NC})" OK
+echo -e "${YELLOW}确认恢复 $SEL ? (y/N):${NC}"
+read -rp " " OK
 [[ ! $OK =~ ^[Yy]$ ]] && exit 0
-
 echo -e "${GREEN}开始恢复...${NC}"
 rclone copy "$REMOTE:$BUCKET/backups/$SEL" "$TMP" --quiet
-tar -xzf "$TMP/$SEL" -C "$(dirname "$TARGET_PATH")"
+# 确保目标父目录存在
+PARENT_DIR=$(dirname "$TARGET_PATH")
+mkdir -p "$PARENT_DIR"
+# 解压并显示详细信息
+tar -xzvf "$TMP/$SEL" -C "$PARENT_DIR"
 echo -e "${GREEN}✔ 恢复完成${NC}"
+echo -e "${YELLOW}文件已恢复到: $PARENT_DIR${NC}"
+ls -la "$PARENT_DIR"
 RESTORE_EOF
 chmod +x "$RESTORE_SH"
 sed -i -e "s|__REMOTE__|$REMOTE_NAME|g" \
