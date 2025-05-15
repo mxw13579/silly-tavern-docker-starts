@@ -41,7 +41,7 @@ OLD_ENDPOINT=$(read_rclone_field endpoint)
 # ---------- 如果已安装 → 三选项 ----------
 if [ -f "$BACKUP_SH" ] && systemctl list-unit-files | grep -q '^r2-backup.timer'; then
   echo -e "${GREEN}检测到已安装的 r2-backup 服务${NC}"
-  read -rp "$(echo -e "${YELLOW}A) 修改配置 B) 立即恢复 C) 立即备份 (a/b/c)? ${NC}")" CHOICE
+  read -rp $'\033[1;33mA) 修改配置 B) 立即恢复 C) 立即备份 (a/b/c)? \033[0m' CHOICE
   case "${CHOICE,,}" in
     b) bash "$RESTORE_SH"; exit 0;;
     c) bash "$BACKUP_SH";  exit 0;;
