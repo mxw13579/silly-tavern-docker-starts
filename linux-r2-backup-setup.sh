@@ -175,7 +175,8 @@ else
 fi
 
 while true; do
-  read -rp "$(echo -e ${YELLOW}恢复目录(回车使用 $TARGET_PATH): ${NC})" NEW
+  echo -e "${YELLOW}恢复目录(回车使用 $TARGET_PATH):${NC}"
+  read -rp " " NEW
   [ -z "$NEW" ] && NEW=$TARGET_PATH
   [ -z "$NEW" ] && { echo -e "${RED}必须指定目录${NC}"; continue; }
   TARGET_PATH=$NEW
