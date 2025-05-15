@@ -1,62 +1,112 @@
 #!/usr/bin/env bash
-# r2-backup-setup.sh   (安装 / 升级 / 恢复 一体)
+# r2-backup-setup.sh     (安装 / 升级 / 备份 / 恢复)
 set -e
 
+#------------------- 基本变量 --------------------#
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
+
 BASE_DIR="/opt/r2-backup"
 BACKUP_SH="$BASE_DIR/backup.sh"
 RESTORE_SH="$BASE_DIR/restore.sh"
-SERVICE=/etc/systemd/system/r2-backup.service
-TIMER=/etc/systemd/system/r2-backup.timer
+SERVICE="/etc/systemd/system/r2-backup.service"
+TIMER="/etc/systemd/system/r2-backup.timer"
 REMOTE_NAME="cf_r2"
+RCLONE_CONF="/root/.config/rclone/rclone.conf"
 
-need_root() { [ "$(id -u)" -eq 0 ] || { echo -e "${RED}请以 root 执行${NC}"; exit 1; }; }
+need_root() { [ "$(id -u)" -eq 0 ] || { echo -e "${RED}请以 root 身份执行${NC}"; exit 1; }; }
 need_root
 
-#--------------------------------------------------#
-# A. 已安装 => 询问处理方式
-#--------------------------------------------------#
-if [ -f "$BACKUP_SH" ] && systemctl list-unit-files | grep -q r2-backup.timer; then
-  echo -e "${GREEN}已检测到现有备份服务 (r2-backup.timer)${NC}"
+#---------------- 读取现有配置 (若有) --------------#
+OLD_TARGET=""; OLD_KEEP=""; OLD_BUCKET=""
+OLD_PERIOD_RAW=""; OLD_PERIOD=""
+OLD_ACCESS=""; OLD_SECRET=""; OLD_ENDPOINT=""
+
+if [ -f "$BACKUP_SH" ]; then
+  OLD_TARGET=$(grep '^TARGET_PATH=' "$BACKUP_SH" | cut -d'"' -f2)
+  OLD_KEEP=$(grep '^KEEP='        "$BACKUP_SH" | cut -d'"' -f2)
+  OLD_BUCKET=$(grep '^BUCKET='     "$BACKUP_SH" | cut -d'"' -f2)
+fi
+
+if [ -f "$TIMER" ]; then
+  OLD_PERIOD_RAW=$(grep '^OnUnitActiveSec=' "$TIMER" | cut -d= -f2)
+  if [[ $OLD_PERIOD_RAW =~ ^([0-9]+)(sec|min|hour|day|week)$ ]]; then
+    NUM=${BASH_REMATCH[1]}; UNIT=${BASH_REMATCH[2]}
+    case $UNIT in
+      sec)  OLD_PERIOD="${NUM}s" ;;
+      min)  OLD_PERIOD="${NUM}m" ;;
+      hour) OLD_PERIOD="${NUM}h" ;;
+      day)  OLD_PERIOD="${NUM}d" ;;
+      week) OLD_PERIOD="${NUM}w" ;;
+    esac
+  fi
+fi
+
+if [ -f "$RCLONE_CONF" ]; then
+  OLD_ACCESS=$(awk -v s="[$REMOTE_NAME]" '
+      $0==s{f=1;next} /^\[/{f=0}
+      f && $1=="access_key_id"     {print $3}
+  ' "$RCLONE_CONF")
+  OLD_SECRET=$(awk -v s="[$REMOTE_NAME]" '
+      $0==s{f=1;next} /^\[/{f=0}
+      f && $1=="secret_access_key" {print $3}
+  ' "$RCLONE_CONF")
+  OLD_ENDPOINT=$(awk -v s="[$REMOTE_NAME]" '
+      $0==s{f=1;next} /^\[/{f=0}
+      f && $1=="endpoint"          {print $3}
+  ' "$RCLONE_CONF")
+fi
+
+#------------- 如果已安装，给出 3 个操作 -------------#
+if [ -f "$BACKUP_SH" ] && systemctl list-unit-files | grep -q '^r2-backup.timer'; then
+  echo -e "${GREEN}检测到已安装的 r2-backup 服务${NC}"
+
   read -rp "$(echo -e ${YELLOW}是否修改备份配置?[y/N]: ${NC})" CHG
   if [[ ! $CHG =~ ^[Yy]$ ]]; then
     read -rp "$(echo -e ${YELLOW}是否现在执行恢复流程?[y/N]: ${NC})" DO_RESTORE
     if [[ $DO_RESTORE =~ ^[Yy]$ ]]; then
-      bash "$RESTORE_SH"
-    fi
+      bash "$RESTORE_SH"; fi
+
+    read -rp "$(echo -e ${YELLOW}是否现在立即备份一次?[y/N]: ${NC})" DO_BAK
+    if [[ $DO_BAK =~ ^[Yy]$ ]]; then
+      bash "$BACKUP_SH"; fi
     exit 0
   fi
-  echo -e "${YELLOW}→ 将进入配置更新流程${NC}"
+  echo -e "${YELLOW}→ 进入配置修改流程 (直接回车可保持原值)${NC}"
 fi
 
-#--------------------------------------------------#
-# B. 收集新配置
-#--------------------------------------------------#
-read -rp "1) 请输入要备份的文件/目录绝对路径: " TARGET_PATH
-[ -e "$TARGET_PATH" ] || { echo -e "${RED}路径不存在${NC}"; exit 1; }
+#----------------- 收集 / 修改配置 ------------------#
+read -rp "1) 请输入要备份的文件/目录绝对路径 [${OLD_TARGET:-无}]: " TARGET_PATH
+TARGET_PATH=${TARGET_PATH:-$OLD_TARGET}
+[ -z "$TARGET_PATH" ] && { echo -e "${RED}必须指定备份路径${NC}"; exit 1; }
+[ -e "$TARGET_PATH" ]  || { echo -e "${RED}路径不存在${NC}"; exit 1; }
 TARGET_PATH=$(realpath "$TARGET_PATH")
 
-read -rp "2) R2 Access Key: " R2_ACCESS_KEY
-read -rp "3) R2 Secret Key: " R2_SECRET_KEY
-read -rp "4) R2 Bucket Name: " R2_BUCKET
-read -rp "5) R2 Endpoint (例 https://xxx.r2.cloudflarestorage.com): " R2_ENDPOINT
+# 访问密钥
+read -rp "2) R2 Access Key [${OLD_ACCESS:-无}]: " R2_ACCESS_KEY
+R2_ACCESS_KEY=${R2_ACCESS_KEY:-$OLD_ACCESS}
+read -rp "3) R2 Secret Key (留空保持不变): " R2_SECRET_KEY
+[ -z "$R2_SECRET_KEY" ] && R2_SECRET_KEY=$OLD_SECRET
 
-read -rp "6) 备份间隔(30m 6h 1d 2w，默认1d): " PERIOD
-PERIOD=${PERIOD:-1d}
+read -rp "4) R2 Bucket Name [${OLD_BUCKET:-无}]: " R2_BUCKET
+R2_BUCKET=${R2_BUCKET:-$OLD_BUCKET}
+
+read -rp "5) R2 Endpoint (例 https://xxx.r2.cloudflarestorage.com) [${OLD_ENDPOINT:-无}]: " R2_ENDPOINT
+R2_ENDPOINT=${R2_ENDPOINT:-$OLD_ENDPOINT}
+
+read -rp "6) 备份间隔(30m 6h 1d 2w) [${OLD_PERIOD:-1d}]: " PERIOD
+PERIOD=${PERIOD:-${OLD_PERIOD:-1d}}
 [[ $PERIOD =~ ^[0-9]+[smhdw]$ ]] || { echo -e "${RED}格式错误${NC}"; exit 1; }
 
-read -rp "7) 仅保留最新几份备份(默认10): " KEEP
-KEEP=${KEEP:-10}
+read -rp "7) 仅保留最新几份备份(默认10) [${OLD_KEEP:-10}]: " KEEP
+KEEP=${KEEP:-${OLD_KEEP:-10}}
 [[ $KEEP =~ ^[0-9]+$ ]] || { echo -e "${RED}请输入数字${NC}"; exit 1; }
 
-#--------------------------------------------------#
-# C. 安装 rclone (若无)
-#--------------------------------------------------#
+#-------------------- 安装 rclone -------------------#
 if ! command -v unzip >/dev/null; then
   echo "installing unzip..."
-  if command -v apt-get >/dev/null; then sudo apt-get install -y unzip;
-  elif command -v yum     >/dev/null; then sudo yum  install -y unzip;
-  elif command -v apk     >/dev/null; then sudo apk  add unzip; fi
+  if   command -v apt-get >/dev/null; then apt-get  update -y && apt-get  install -y unzip;
+  elif command -v yum     >/dev/null; then yum      install -y unzip;
+  elif command -v apk     >/dev/null; then apk      add unzip; fi
 fi
 
 if ! command -v rclone >/dev/null; then
@@ -64,8 +114,17 @@ if ! command -v rclone >/dev/null; then
   curl -fsSL https://rclone.org/install.sh | bash
 fi
 
+#------------- 写入 / 更新 rclone.conf --------------#
 mkdir -p /root/.config/rclone
-cat > /root/.config/rclone/rclone.conf <<EOF
+if [ -f "$RCLONE_CONF" ]; then
+  awk -v s="[$REMOTE_NAME]" '
+      $0==s{f=1;next}
+      /^\[/{f=0}
+      !f' "$RCLONE_CONF" > /tmp/rclone.tmp || true
+  mv /tmp/rclone.tmp "$RCLONE_CONF"
+fi
+
+cat >> "$RCLONE_CONF" <<EOF
 [$REMOTE_NAME]
 type = s3
 provider = Cloudflare
@@ -75,33 +134,16 @@ endpoint = $R2_ENDPOINT
 acl = private
 EOF
 
-#--------------------------------------------------#
-# D. 若 bucket 中已有备份 → 提示恢复
-#--------------------------------------------------#
-echo -e "${GREEN}检查 R2 bucket 是否已有备份...${NC}"
+#------------ 判断远端是否已有备份文件 -------------#
+HAS_BAK=0
 if rclone lsf "$REMOTE_NAME:$R2_BUCKET/backups/" --format p 2>/dev/null | grep -q . ; then
-  echo -e "${YELLOW}检测到 R2/backups 目录已有数据${NC}"
-  read -rp "$(echo -e ${YELLOW}是否立即进入恢复流程?[y/N]: ${NC})" NEED_RESTORE
-  if [[ $NEED_RESTORE =~ ^[Yy]$ ]]; then
-    export __TMP_REMOTE=$REMOTE_NAME __TMP_BUCKET=$R2_BUCKET
-    bash -c '
-      TMP=/tmp/tmp-restore.sh
-      cat >$TMP <<EOF
-#!/usr/bin/env bash
-REMOTE="$__TMP_REMOTE"; BUCKET="$__TMP_BUCKET"
-rclone lsf "\$REMOTE:\$BUCKET/backups/" --format p | nl
-echo "仅查看列表，完整恢复请等新脚本生成后运行"
-EOF'
-    unset __TMP_REMOTE __TMP_BUCKET
-  fi
+  HAS_BAK=1
 fi
 
-#--------------------------------------------------#
-# E. 写入脚本 / systemd
-#--------------------------------------------------#
+#---------------- 创建脚本目录 ---------------------#
 mkdir -p "$BASE_DIR"
 
-# 1. 生成备份脚本
+#================== 生成 backup.sh =================#
 cat > "$BACKUP_SH" <<'BACKUP_EOF'
 #!/usr/bin/env bash
 set -e
@@ -118,27 +160,78 @@ ARCHIVE="$WORK/${NAME}-${STAMP}.tar.gz"
 # 首次写入 config
 if ! rclone ls "$REMOTE:$BUCKET/config/backup-info.txt" &>/dev/null; then
   echo "TARGET_PATH=$TARGET_PATH" >/tmp/backup-info.txt
-  rclone copy /tmp/backup-info.txt "$REMOTE:$BUCKET/config/"
+  rclone copy /tmp/backup-info.txt "$REMOTE:$BUCKET/config/" --quiet
 fi
 
 tar -czf "$ARCHIVE" -C "$(dirname "$TARGET_PATH")" "$NAME"
-rclone copy "$ARCHIVE" "$REMOTE:$BUCKET/backups/"
+rclone copy "$ARCHIVE" "$REMOTE:$BUCKET/backups/" --quiet
 
 CNT=$(rclone lsf "$REMOTE:$BUCKET/backups/" --format p | wc -l)
 if [ "$CNT" -gt "$KEEP" ]; then
   DEL=$((CNT-KEEP))
-  rclone lsf "$REMOTE:$BUCKET/backups/" --format p | sort | head -n $DEL | \
-    while read f; do rclone delete "$REMOTE:$BUCKET/backups/$f"; done
+  rclone lsf "$REMOTE:$BUCKET/backups/" --format p | sort | head -n "$DEL" | \
+  while read f; do
+    rclone delete "$REMOTE:$BUCKET/backups/$f" --quiet
+  done
 fi
 rm -f "$ARCHIVE"
 BACKUP_EOF
+
 chmod +x "$BACKUP_SH"
 sed -i -e "s|__TARGET_PATH__|$TARGET_PATH|g" \
-       -e "s|__REMOTE__|$REMOTE_NAME|g" \
-       -e "s|__BUCKET__|$R2_BUCKET|g" \
-       -e "s|__KEEP__|$KEEP|g" "$BACKUP_SH"
+       -e "s|__REMOTE__|$REMOTE_NAME|g"  \
+       -e "s|__BUCKET__|$R2_BUCKET|g"    \
+       -e "s|__KEEP__|$KEEP|g"           "$BACKUP_SH"
 
-# 2. 生成 systemd unit/timer
+#================== 生成 restore.sh ================#
+cat > "$RESTORE_SH" <<'RESTORE_EOF'
+#!/usr/bin/env bash
+set -e
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
+REMOTE="__REMOTE__"; BUCKET="__BUCKET__"
+TMP=/tmp/r2-restore; mkdir -p "$TMP"
+
+TARGET_PATH=""
+
+# (1) 优先尝试读 backup-info.txt
+if rclone ls "$REMOTE:$BUCKET/config/backup-info.txt" &>/dev/null; then
+  rclone copy "$REMOTE:$BUCKET/config/backup-info.txt" "$TMP" --quiet
+  if [ -f "$TMP/backup-info.txt" ]; then
+    source "$TMP/backup-info.txt"
+    echo -e "${GREEN}已读取配置，默认恢复到: $TARGET_PATH${NC}"
+  fi
+fi
+
+# (2) 如仍无目标路径，让用户手动输入
+while [ -z "$TARGET_PATH" ]; do
+  read -rp "$(echo -e ${YELLOW}请输入要恢复到的绝对路径: ${NC})" TARGET_PATH
+done
+
+# (3) 获取可用备份并让用户选
+LIST=$(rclone lsf "$REMOTE:$BUCKET/backups/" --format p 2>/dev/null | sort -r)
+[ -z "$LIST" ] && { echo -e "${RED}远端没有可用备份${NC}"; exit 1; }
+
+echo -e "${GREEN}可用备份:${NC}"
+echo "$LIST" | nl
+read -rp "$(echo -e ${YELLOW}请选择编号: ${NC})" IDX
+SEL=$(echo "$LIST" | sed -n "${IDX}p")
+[ -z "$SEL" ] && { echo -e "${RED}编号无效${NC}"; exit 1; }
+
+read -rp "$(echo -e ${YELLOW}确认恢复 $SEL ? [y/N]: ${NC})" OK
+[[ ! $OK =~ ^[Yy]$ ]] && exit 0
+
+echo -e "${GREEN}开始恢复...${NC}"
+rclone copy "$REMOTE:$BUCKET/backups/$SEL" "$TMP" --quiet
+tar -xzf "$TMP/$SEL" -C "$(dirname "$TARGET_PATH")"
+
+echo -e "${GREEN}✔ 恢复完成${NC}"
+RESTORE_EOF
+
+chmod +x "$RESTORE_SH"
+sed -i -e "s|__REMOTE__|$REMOTE_NAME|g" \
+       -e "s|__BUCKET__|$R2_BUCKET|g"   "$RESTORE_SH"
+
+#================= 生成 systemd 单元 ================#
 SYSD="${PERIOD: -1}"; NUM="${PERIOD%$SYSD}"
 case $SYSD in
   s) SYSP="${NUM}sec"  ;;
@@ -159,7 +252,7 @@ EOF
 
 cat > "$TIMER" <<EOF
 [Unit]
-Description=Run R2 Backup each $SYSP
+Description=Run R2 Backup every $SYSP
 
 [Timer]
 OnBootSec=1min
@@ -173,52 +266,17 @@ EOF
 systemctl daemon-reload
 systemctl enable --now r2-backup.timer
 
-# 3. 生成恢复脚本（已修复 backup-info.txt 缺失问题）
-cat > "$RESTORE_SH" <<'RESTORE_EOF'
-#!/usr/bin/env bash
-set -e
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
-REMOTE="__REMOTE__"; BUCKET="__BUCKET__"
-TMP=/tmp/r2-restore; mkdir -p "$TMP"
+#----------------------- 收尾 ----------------------#
+echo -e "${GREEN}✔ 备份计划已配置，每 $PERIOD 备份一次，保留 $KEEP 份${NC}"
+echo    "• 备份脚本 : $BACKUP_SH"
+echo    "• 恢复脚本 : $RESTORE_SH"
+echo    "• systemd   : r2-backup.timer 已启动"
 
-# 1) 尝试下载 backup-info.txt；若不存在，则提示用户手动输入
-if rclone copy "$REMOTE:$BUCKET/config/backup-info.txt" "$TMP" --quiet 2>/dev/null; then
-  source "$TMP/backup-info.txt"
-  echo -e "${GREEN}已读取配置文件，目标路径: $TARGET_PATH${NC}"
-else
-  echo -e "${YELLOW}未找到 config/backup-info.txt (可能是旧版备份)${NC}"
-  read -rp "请输入要恢复到的绝对路径: " TARGET_PATH
-  [ -z "$TARGET_PATH" ] && { echo -e "${RED}必须指定目标路径${NC}"; exit 1; }
+# 远端有备份且本次未立即恢复时，再次提醒
+if [ "$HAS_BAK" -eq 1 ]; then
+  echo -e "${YELLOW}提示: 远端已有备份，可随时执行 $RESTORE_SH 进行恢复${NC}"
 fi
 
-echo -e "目标路径: $TARGET_PATH"
-LIST=$(rclone lsf "$REMOTE:$BUCKET/backups/" --format p | sort -r)
-[ -z "$LIST" ] && { echo -e "${RED}无可用备份${NC}"; exit 1; }
-
-echo "$LIST" | nl
-read -rp "$(echo -e ${YELLOW}选择编号: ${NC})" NO
-SEL=$(echo "$LIST" | sed -n "${NO}p")
-[ -z "$SEL" ] && { echo -e "${RED}编号无效${NC}"; exit 1; }
-
-read -rp "确认恢复 $SEL ? (y/N): " C
-[[ ! "$C" =~ ^[Yy]$ ]] && exit 0
-
-rclone copy "$REMOTE:$BUCKET/backups/$SEL" "$TMP" --quiet
-tar -xzf "$TMP/$SEL" -C "$(dirname "$TARGET_PATH")"
-
-echo -e "${GREEN}恢复完成${NC}"
-RESTORE_EOF
-chmod +x "$RESTORE_SH"
-sed -i -e "s|__REMOTE__|$REMOTE_NAME|g" \
-       -e "s|__BUCKET__|$R2_BUCKET|g" "$RESTORE_SH"
-
-#--------------------------------------------------#
-# F. 完成
-#--------------------------------------------------#
-echo -e "${GREEN}✔ 备份计划已配置，每 $PERIOD 备份一次，保留 $KEEP 份${NC}"
-echo -e "• 备份脚本: $BACKUP_SH"
-echo -e "• 恢复脚本: $RESTORE_SH"
-echo -e "• systemd timer 已启动 (r2-backup.timer)"
-
-read -rp "$(echo -e ${YELLOW}是否立即执行一次恢复脚本?[y/N]: ${NC})" R
-[[ $R =~ ^[Yy]$ ]] && bash "$RESTORE_SH"
+# 询问是否立刻执行一次备份
+read -rp "$(echo -e ${YELLOW}是否立即执行一次备份?[y/N]: ${NC})" DO_BAK
+[[ $DO_BAK =~ ^[Yy]$ ]] && bash "$BACKUP_SH"
