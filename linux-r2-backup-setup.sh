@@ -54,10 +54,7 @@ KEEP=${KEEP:-10}
 #--------------------------------------------------#
 if ! command -v rclone >/dev/null; then
   echo -e "${YELLOW}安装 rclone ...${NC}"
-  if command -v apt >/dev/null;   then apt update -y && apt install -y rclone;
-  elif command -v yum >/dev/null; then yum install -y epel-release && yum install -y rclone;
-  elif command -v apk >/dev/null; then apk add --no-cache rclone;
-  else curl -fsSL https://rclone.org/install.sh | bash; fi
+  curl -fsSL https://rclone.org/install.sh | bash
 fi
 
 mkdir -p /root/.config/rclone
