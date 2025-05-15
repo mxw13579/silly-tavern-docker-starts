@@ -169,7 +169,6 @@ REMOTE="__REMOTE__"
 BUCKET="__BUCKET__"
 TMP=/tmp/r2-restore
 mkdir -p "$TMP"
-
 # 读取 config/backup-info.txt
 if rclone copy "$REMOTE:$BUCKET/config/backup-info.txt" "$TMP" --quiet 2>/dev/null; then
   source "$TMP/backup-info.txt"
@@ -178,46 +177,55 @@ if rclone copy "$REMOTE:$BUCKET/config/backup-info.txt" "$TMP" --quiet 2>/dev/nu
 else
   echo -e "${YELLOW}未找到 config/backup-info.txt${NC}"
 fi
-
 # 请求恢复目录
 echo -e "${YELLOW}恢复目录:${NC} (回车使用 $TARGET_PATH)"
 read -r NEW
 [ -z "$NEW" ] && NEW=$TARGET_PATH
 [ -z "$NEW" ] && { echo -e "${RED}必须指定目录${NC}"; exit 1; }
 TARGET_PATH=$NEW
-
+# 确保目标目录存在
+mkdir -p "$TARGET_PATH"
 # 获取可用备份列表
 LIST=$(rclone lsf "$REMOTE:$BUCKET/backups/" --format p 2>/dev/null | sort -r)
 [ -z "$LIST" ] && { echo -e "${RED}远端无可用备份${NC}"; exit 1; }
-
 # 显示备份列表
 echo -e "${GREEN}可用备份:${NC}"
 echo "$LIST" | nl
-
 # 选择备份
 echo -e "${YELLOW}选择编号:${NC}"
 read -r IDX
 SEL=$(echo "$LIST" | sed -n "${IDX}p")
 [ -z "$SEL" ] && { echo -e "${RED}编号无效${NC}"; exit 1; }
-
 # 确认恢复
 echo -e "${YELLOW}确认恢复 $SEL ? (y/N):${NC}"
 read -r OK
 [[ ! $OK =~ ^[Yy]$ ]] && exit 0
-
 # 执行恢复
 echo -e "${GREEN}开始恢复...${NC}"
 rclone copy "$REMOTE:$BUCKET/backups/$SEL" "$TMP" --quiet
-
-# 确保目标父目录存在
-PARENT_DIR=$(dirname "$TARGET_PATH")
-mkdir -p "$PARENT_DIR"
-
-# 解压并显示详细信息
-tar -xzvf "$TMP/$SEL" -C "$PARENT_DIR"
+# 获取备份文件名中的原始目录名
+ARCHIVE_NAME=$(basename "$SEL" .tar.gz)
+ORIG_DIR=$(echo "$ARCHIVE_NAME" | cut -d'-' -f1)
+# 临时解压目录
+EXTRACT_DIR="$TMP/extract"
+mkdir -p "$EXTRACT_DIR"
+# 解压到临时目录
+tar -xzf "$TMP/$SEL" -C "$EXTRACT_DIR"
+# 将文件移动到目标目录
+if [ -d "$EXTRACT_DIR/$ORIG_DIR" ]; then
+  # 如果解压出的是目录，复制目录内容到目标目录
+  echo "将 $ORIG_DIR 内容复制到 $TARGET_PATH"
+  cp -rf "$EXTRACT_DIR/$ORIG_DIR/"* "$TARGET_PATH/"
+else
+  # 如果解压出的是文件，直接复制到目标目录
+  echo "将解压的文件复制到 $TARGET_PATH"
+  cp -rf "$EXTRACT_DIR/"* "$TARGET_PATH/"
+fi
 echo -e "${GREEN}✔ 恢复完成${NC}"
-echo -e "${YELLOW}文件已恢复到: $PARENT_DIR${NC}"
-ls -la "$PARENT_DIR"
+echo -e "${YELLOW}文件已恢复到: $TARGET_PATH${NC}"
+ls -la "$TARGET_PATH"
+# 清理临时文件
+rm -rf "$EXTRACT_DIR" "$TMP/$SEL"
 
 RESTORE_EOF
 chmod +x "$RESTORE_SH"
