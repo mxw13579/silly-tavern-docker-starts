@@ -1,77 +1,83 @@
-#!/usr/bin/env bash
-set -euo pipefail
-# 1) 检测非交互环境（stdin 不是 TTY）或 -y 参数，进入自动模式
+#!/usr/bin/env sh
+# POSIX 兼容脚本，自动/交互一键安装 SillyTavern with Docker
+
+set -eu
+# 部分 BusyBox 没有 pipefail，这里仅设置 -eu
+
+# ========== 参数解析与自动模式检测 ==========
 AUTO_MODE=0
-[ ! -t 0 ] && AUTO_MODE=1
-while [[ $# -gt 0 ]]; do
-  case $1 in
+
+# 检查参数
+while [ $# -gt 0 ]; do
+  case "$1" in
     -y|--auto) AUTO_MODE=1; shift ;;
     *) echo "用法: $0 [--auto|-y]" >&2; exit 1 ;;
   esac
 done
 
-# =========================
-# 检查 sudo
-# =========================
-if ! command -v sudo &> /dev/null; then
-  echo "需要 sudo 来继续安装" >&2
+# 检查 STDIN 是否为 TTY，非 TTY 则自动模式
+if command -v tty >/dev/null 2>&1 && ! tty -s; then
+  AUTO_MODE=1
+elif [ ! -t 0 ]; then
+  AUTO_MODE=1
+fi
+
+# ========== 必要命令检测 ==========
+for prog in sudo curl; do
+  if ! command -v "$prog" >/dev/null 2>&1; then
+    echo "请先安装 $prog" >&2
+    exit 1
+  fi
+done
+
+# ========== 检测操作系统 ==========
+OS=""
+OS_LIKE=""
+
+if [ -f /etc/os-release ]; then
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  OS=$(echo "$ID" | tr 'A-Z' 'a-z')
+  OS_LIKE=$(echo "${ID_LIKE:-$OS}" | tr 'A-Z' 'a-z')
+elif [ -f /etc/redhat-release ]; then
+  OS="rhel"
+  OS_LIKE="rhel"
+elif [ -f /etc/arch-release ]; then
+  OS="arch"
+  OS_LIKE="arch"
+elif [ -f /etc/alpine-release ]; then
+  OS="alpine"
+  OS_LIKE="alpine"
+elif [ -f /etc/SuSE-release ]; then
+  OS="suse"
+  OS_LIKE="suse"
+else
+  echo "无法识别操作系统" >&2
   exit 1
 fi
 
-# =========================
-# 检测系统
-# =========================
-OS=""
-OS_LIKE=""
-if [[ -f /etc/os-release ]]; then
-  . /etc/os-release
-  OS=${ID,,}
-  OS_LIKE=${ID_LIKE:-$OS}
-elif [[ -f /etc/redhat-release ]]; then
-  OS="rhel"; OS_LIKE="rhel"
-elif [[ -f /etc/arch-release ]]; then
-  OS="arch"; OS_LIKE="arch"
-elif [[ -f /etc/alpine-release ]]; then
-  OS="alpine"; OS_LIKE="alpine"
-elif [[ -f /etc/SuSE-release ]]; then
-  OS="suse"; OS_LIKE="suse"
-else
-  echo "无法识别操作系统" >&2; exit 1
-fi
+echo "检测到系统: $OS (ID_LIKE=$OS_LIKE)"
 
-echo "检测到系统: $OS  (ID_LIKE=$OS_LIKE)"
-
-# =========================
-# 安装 Docker & Compose
-# =========================
-install_docker(){
+# ========== 安装 Docker & Compose ==========
+install_docker() {
   case "$OS" in
     debian|ubuntu|raspbian|linuxmint|pop|elementary)
       sudo apt-get update
-      sudo apt-get install -y \
-        apt-transport-https ca-certificates curl gnupg lsb-release
-      sudo install -d -m0755 /etc/apt/keyrings
-      curl -fsSL https://download.docker.com/linux/${OS}/gpg \
-        | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-      echo \
-"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-https://download.docker.com/linux/${OS} $(lsb_release -cs) stable" \
-        | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
+      sudo mkdir -p /etc/apt/keyrings
+      curl -fsSL "https://download.docker.com/linux/$OS/gpg" | sudo gpg --dearmor >/etc/apt/keyrings/docker.gpg
+      printf "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\n" "$OS" "$(lsb_release -cs)" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
       sudo apt-get update
-      sudo apt-get install -y \
-        docker-ce docker-ce-cli containerd.io \
-        docker-buildx-plugin docker-compose-plugin
+      sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
       ;;
     centos|rhel|rocky|almalinux|ol)
       sudo yum install -y yum-utils
-      sudo yum-config-manager \
-        --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+      sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
       sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
       ;;
     fedora)
       sudo dnf install -y dnf-plugins-core
-      sudo dnf config-manager \
-        --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+      sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
       sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
       ;;
     arch)
@@ -86,40 +92,53 @@ https://download.docker.com/linux/${OS} $(lsb_release -cs) stable" \
       sudo zypper install -y docker docker-compose
       ;;
     *)
-      echo "不支持的系统: $OS" >&2; exit 1 ;;
+      echo "不支持的系统: $OS" >&2
+      exit 1
+      ;;
   esac
 
   # 启动 docker
-  if [[ "$OS" == "alpine" ]]; then
+  if [ "$OS" = "alpine" ]; then
     sudo rc-update add docker boot
     sudo service docker start
   else
-    sudo systemctl enable --now docker
+    sudo systemctl enable docker || true
+    sudo systemctl start docker || true
   fi
 }
 
-install_compose(){
-  if docker compose version &>/dev/null; then
+install_compose() {
+  if docker compose version >/dev/null 2>&1; then
     DCMD="docker compose"
-  elif command -v docker-compose &>/dev/null; then
+  elif command -v docker-compose >/dev/null 2>&1; then
     DCMD="docker-compose"
   else
-    # 安装插件
     case "$OS_LIKE" in
-      *debian*|*ubuntu*) sudo apt-get install -y docker-compose-plugin ;;
+      *debian*|*ubuntu*)
+        sudo apt-get install -y docker-compose-plugin || sudo apt-get install -y docker-compose
+        ;;
       *rhel*|*centos*|*fedora*)
-        if command -v dnf &>/dev/null; then
-          sudo dnf install -y docker-compose-plugin
+        if command -v dnf >/dev/null 2>&1; then
+          sudo dnf install -y docker-compose-plugin || sudo dnf install -y docker-compose
         else
-          sudo yum install -y docker-compose-plugin
+          sudo yum install -y docker-compose-plugin || sudo yum install -y docker-compose
         fi
         ;;
-      *arch*) sudo pacman -Sy --noconfirm docker-compose ;;
-      *alpine*) sudo apk add docker-compose ;;
-      *suse*) sudo zypper install -y docker-compose ;;
-      *) ;;
+      *arch*)
+        sudo pacman -Sy --noconfirm docker-compose
+        ;;
+      *alpine*)
+        sudo apk add docker-compose
+        ;;
+      *suse*)
+        sudo zypper install -y docker-compose
+        ;;
+      *)
+        echo "请手动安装 docker compose" >&2
+        exit 1
+        ;;
     esac
-    if docker compose version &>/dev/null; then
+    if docker compose version >/dev/null 2>&1; then
       DCMD="docker compose"
     else
       DCMD="docker-compose"
@@ -127,25 +146,31 @@ install_compose(){
   fi
 }
 
-# 安装检测
-if ! command -v docker &>/dev/null; then
+# ========== 检查 docker/compose ==========
+if ! command -v docker >/dev/null 2>&1; then
   install_docker
 fi
 install_compose
 
-# docker 组
-LOGIN_USER=$(logname 2>/dev/null || echo "$SUDO_USER")
-if ! id -nG "$LOGIN_USER" | grep -qw docker; then
+# ========== docker 组权限 ==========
+if command -v logname >/dev/null 2>&1; then
+  LOGIN_USER=$(logname 2>/dev/null)
+elif [ -n "${SUDO_USER:-}" ]; then
+  LOGIN_USER="$SUDO_USER"
+else
+  LOGIN_USER="$(whoami)"
+fi
+if ! id -nG "$LOGIN_USER" 2>/dev/null | grep -qw docker; then
   echo "将用户 '$LOGIN_USER' 加入 docker 组，需要重新登录生效"
   sudo usermod -aG docker "$LOGIN_USER" || true
 fi
 
-# =========================
-# 目录与 Compose 文件
-# =========================
-BASE=/data/docker/sillytavern
-sudo mkdir -p $BASE/{plugins,config,data,extensions}
-cat <<EOF | sudo tee $BASE/docker-compose.yaml >/dev/null
+# ========== 目录与 Compose 文件 ==========
+BASE="/data/docker/sillytavern"
+sudo mkdir -p "$BASE/plugins" "$BASE/config" "$BASE/data" "$BASE/extensions"
+
+# 生成 docker-compose.yaml
+cat <<EOF | sudo tee "$BASE/docker-compose.yaml" >/dev/null
 version: '3.8'
 services:
   sillytavern:
@@ -170,56 +195,61 @@ services:
     restart: always
 EOF
 
-# =========================
-# 外网访问配置
-# =========================
-if [[ $AUTO_MODE -eq 1 ]]; then
+# ========== 外网访问配置 ==========
+# 随机字符串生成
+rand(){
+  # 生成32位安全随机字符串，兼容 busybox/alpine
+  dd if=/dev/urandom bs=32 count=1 2>/dev/null | base64 | tr -dc 'A-Za-z0-9' | cut -c1-32
+}
+
+enable_external_access="n"
+if [ "$AUTO_MODE" -eq 1 ]; then
   enable_external_access="n"
 else
-  echo
-  echo "请选择是否开启外网访问（Basic Auth）"
-  while true; do
-    # read -p 在 TTY 下正常，否则永远读不到输入会死循环
-    read -p "是否开启外网访问? (y/n): " yn
-    case $yn in
+  printf "\n请选择是否开启外网访问（Basic Auth）\n"
+  try_cnt=0
+  while [ "$try_cnt" -lt 5 ]; do
+    printf "是否开启外网访问? (y/n): "
+    read yn
+    case "$yn" in
       [Yy]*) enable_external_access="y"; break ;;
       [Nn]*) enable_external_access="n"; break ;;
       *) echo "请回答 y 或 n" ;;
     esac
+    try_cnt=$((try_cnt+1))
   done
 fi
 
-# 生成随机字符串
-rand(){
-  head -c32 /dev/urandom | base64 | tr -d '/+=' | cut -c1-32
-}
-
-if [[ $enable_external_access == "y" ]]; then
-  echo
-  echo "== 配置用户名/密码 =="
-  if [[ $AUTO_MODE -eq 1 ]]; then
+if [ "$enable_external_access" = "y" ]; then
+  printf "\n== 配置用户名/密码 ==\n"
+  username=""
+  password=""
+  if [ "$AUTO_MODE" -eq 1 ]; then
     username=$(rand)
     password=$(rand)
   else
-    echo "1) 随机生成"
-    echo "2) 手动输入"
-    while true; do
-      read -p "请选择 (1/2): " opt
-      case $opt in
+    printf "1) 随机生成\n2) 手动输入\n"
+    try_cnt=0
+    while [ "$try_cnt" -lt 3 ]; do
+      printf "请选择 (1/2): "
+      read opt
+      case "$opt" in
         1) username=$(rand); password=$(rand); break ;;
         2)
-          while true; do
-            read -p "输入用户名(非纯数字): " u
-            if [[ ! $u =~ ^[0-9]+$ && -n $u ]]; then
-              username=$u; break
+          while :; do
+            printf "输入用户名(非纯数字): "
+            read u
+            if [ -n "$u" ] && ! echo "$u" | grep -q '^[0-9][0-9]*$'; then
+              username="$u"; break
             else
               echo "用户名不能为纯数字且不能为空"
             fi
           done
-          while true; do
-            read -p "输入密码(非纯数字): " p
-            if [[ ! $p =~ ^[0-9]+$ && -n $p ]]; then
-              password=$p; break
+          while :; do
+            printf "输入密码(非纯数字): "
+            read p
+            if [ -n "$p" ] && ! echo "$p" | grep -q '^[0-9][0-9]*$'; then
+              password="$p"; break
             else
               echo "密码不能为纯数字且不能为空"
             fi
@@ -228,11 +258,12 @@ if [[ $enable_external_access == "y" ]]; then
           ;;
         *) echo "请输入 1 或 2" ;;
       esac
+      try_cnt=$((try_cnt+1))
     done
   fi
 
-  sudo mkdir -p $BASE/config
-  cat <<EOCFG | sudo tee $BASE/config/config.yaml
+  sudo mkdir -p "$BASE/config"
+  printf "%s\n" "
 dataRoot: ./data
 cardsCacheCapacity: 100
 listen: true
@@ -306,10 +337,10 @@ extras:
   embeddingModel: Cohee/jina-embeddings-v2-base-en
   speechToTextModel: Xenova/whisper-small
   textToSpeechModel: Xenova/speecht5_tts
-promptPlaceholder: "[Start a new chat]"
+promptPlaceholder: \"[Start a new chat]\"
 openai:
   randomizeUserId: false
-  captionSystemPrompt: ""
+  captionSystemPrompt: \"\"
 deepl:
   formality: default
 mistral:
@@ -320,35 +351,29 @@ claude:
   enableSystemPromptCache: false
   cachingAtDepth: -1
 enableServerPlugins: false
-EOCFG
+" | sudo tee "$BASE/config/config.yaml" >/dev/null
 
   echo "已开启外网访问：用户名=$username 密码=$password"
 fi
 
-# =========================
-# 启动服务
-# =========================
-cd $BASE
-if sudo $DCMD ps --filter name=sillytavern | grep -q sillytavern; then
+# ========== 启动服务 ==========
+cd "$BASE"
+if sudo $DCMD ps --filter name=sillytavern 2>/dev/null | grep sillytavern >/dev/null 2>&1; then
   echo "正在重启容器..."
-  sudo $DCMD down
+  sudo $DCMD down || true
 fi
-
 echo "正在启动服务..."
 sudo $DCMD up -d
 
-# =========================
-# 查看结果
-# =========================
+# ========== 查看结果 ==========
 echo
-if command -v curl &>/dev/null; then
-  public_ip=$(curl -sS https://api.ipify.org)
-else
-  public_ip="(未检测到 curl，无法获取外网IP)"
+public_ip="(未检测到 curl，无法获取外网IP)"
+if command -v curl >/dev/null 2>&1; then
+  public_ip=$(curl -sS https://api.ipify.org || echo "(外部 IP 获取失败)")
 fi
 echo "SillyTavern 已成功部署"
 echo "访问地址: http://${public_ip}:8000"
-if [[ $enable_external_access == "y" ]]; then
+if [ "$enable_external_access" = "y" ]; then
   echo "用户名: $username"
   echo "密码: $password"
 fi
