@@ -1,6 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
+# 检查是否为交互式终端
+if ! [ -t 0 ]; then
+    echo "请不要用 'curl ... | sudo bash' 方式运行本脚本。"
+    echo "请用 'curl ... | bash' 或先下载后执行。"
+    exit 1
+fi
+
 # 检查是否具有sudo权限
 if ! command -v sudo &> /dev/null; then
     echo "需要sudo权限来安装Docker"
