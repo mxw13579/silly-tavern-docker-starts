@@ -1,197 +1,174 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-# 检查是否具有sudo权限
+# =========================
+# 参数与用法
+# =========================
+usage(){
+  cat <<EOF
+用法: $0 [--auto|-y]
+  --auto, -y    跳过所有交互，用默认（不开启外网访问）直接部署
+EOF
+  exit 1
+}
+
+AUTO_MODE=0
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -y|--auto) AUTO_MODE=1; shift ;;
+    *) usage ;;
+  esac
+done
+
+# =========================
+# 检查 sudo
+# =========================
 if ! command -v sudo &> /dev/null; then
-    echo "需要sudo权限来安装Docker"
-    exit 1
+  echo "需要 sudo 来继续安装" >&2
+  exit 1
 fi
 
-# 检查系统类型
-echo "检测系统类型..."
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    OS=${ID,,}
-    OS_LIKE=${ID_LIKE:-$OS}
-elif [ -f /etc/redhat-release ]; then
-    OS="rhel"
-    OS_LIKE="rhel"
-elif [ -f /etc/arch-release ]; then
-    OS="arch"
-    OS_LIKE="arch"
-elif [ -f /etc/alpine-release ]; then
-    OS="alpine"
-    OS_LIKE="alpine"
-elif [ -f /etc/SuSE-release ]; then
-    OS="suse"
-    OS_LIKE="suse"
+# =========================
+# 检测系统
+# =========================
+OS=""
+OS_LIKE=""
+if [[ -f /etc/os-release ]]; then
+  . /etc/os-release
+  OS=${ID,,}
+  OS_LIKE=${ID_LIKE:-$OS}
+elif [[ -f /etc/redhat-release ]]; then
+  OS="rhel"; OS_LIKE="rhel"
+elif [[ -f /etc/arch-release ]]; then
+  OS="arch"; OS_LIKE="arch"
+elif [[ -f /etc/alpine-release ]]; then
+  OS="alpine"; OS_LIKE="alpine"
+elif [[ -f /etc/SuSE-release ]]; then
+  OS="suse"; OS_LIKE="suse"
 else
-    echo "无法确定操作系统类型"
-    exit 1
+  echo "无法识别操作系统" >&2; exit 1
 fi
 
-echo "当前操作系统类型为 $OS"
+echo "检测到系统: $OS  (ID_LIKE=$OS_LIKE)"
 
-# 安装 Docker
-install_docker() {
-    case "$OS" in
-        debian|raspbian)
-            echo "在 Debian 系统上安装 Docker..."
-            sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
-            sudo apt-get update
-            sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
-            sudo install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            sudo chmod a+r /etc/apt/keyrings/docker.gpg
-            echo \
-                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
-                $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            sudo apt-get update
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            ;;
-        ubuntu|linuxmint|elementary|pop)
-            echo "在 Ubuntu 系统上安装 Docker..."
-            sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
-            sudo apt-get update
-            sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
-            sudo install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            sudo chmod a+r /etc/apt/keyrings/docker.gpg
-            echo \
-                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-                $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            sudo apt-get update
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            ;;
-        centos|rhel|rocky|almalinux|ol)
-            echo "在 RHEL/CentOS 系统上安装 Docker..."
-            sudo yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
-            sudo yum install -y yum-utils
-            sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-            sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-            ;;
-        fedora)
-            echo "在 Fedora 系统上安装 Docker..."
-            sudo dnf remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
-            sudo dnf -y install dnf-plugins-core
-            sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-            sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-            ;;
-        arch)
-            echo "在 Arch Linux 系统上安装 Docker..."
-            sudo pacman -Sy --noconfirm
-            sudo pacman -S --noconfirm docker docker-compose
-            ;;
-        alpine)
-            echo "在 Alpine Linux 系统上安装 Docker..."
-            sudo apk update
-            sudo apk add docker docker-compose
-            ;;
-        suse|opensuse-leap|opensuse-tumbleweed)
-            echo "在 openSUSE 系统上安装 Docker..."
-            sudo zypper refresh
-            sudo zypper install -y docker docker-compose
-            ;;
-        *)
-            echo "不支持的操作系统: $OS"
-            exit 1
-            ;;
-    esac
+# =========================
+# 安装 Docker & Compose
+# =========================
+install_docker(){
+  case "$OS" in
+    debian|ubuntu|raspbian|linuxmint|pop|elementary)
+      sudo apt-get update
+      sudo apt-get install -y \
+        apt-transport-https ca-certificates curl gnupg lsb-release
+      sudo install -d -m0755 /etc/apt/keyrings
+      curl -fsSL https://download.docker.com/linux/${OS}/gpg \
+        | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      echo \
+"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+https://download.docker.com/linux/${OS} $(lsb_release -cs) stable" \
+        | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      sudo apt-get update
+      sudo apt-get install -y \
+        docker-ce docker-ce-cli containerd.io \
+        docker-buildx-plugin docker-compose-plugin
+      ;;
+    centos|rhel|rocky|almalinux|ol)
+      sudo yum install -y yum-utils
+      sudo yum-config-manager \
+        --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+      sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+      ;;
+    fedora)
+      sudo dnf install -y dnf-plugins-core
+      sudo dnf config-manager \
+        --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+      sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+      ;;
+    arch)
+      sudo pacman -Sy --noconfirm docker docker-compose
+      ;;
+    alpine)
+      sudo apk update
+      sudo apk add docker docker-compose
+      ;;
+    suse|opensuse*)
+      sudo zypper refresh
+      sudo zypper install -y docker docker-compose
+      ;;
+    *)
+      echo "不支持的系统: $OS" >&2; exit 1 ;;
+  esac
+
+  # 启动 docker
+  if [[ "$OS" == "alpine" ]]; then
+    sudo rc-update add docker boot
+    sudo service docker start
+  else
+    sudo systemctl enable --now docker
+  fi
 }
 
-# 检查并安装 Docker
-if ! command -v docker &> /dev/null; then
-    install_docker
-    # 启动 Docker 服务
-    if [ "$OS" = "alpine" ]; then
-        sudo rc-update add docker boot
-        sudo service docker start
-    else
-        sudo systemctl enable --now docker
-    fi
-    # 加入 docker 用户组（可选）
-    if ! groups | grep -qw docker; then
-        sudo usermod -aG docker "$USER" || true
-    fi
-    # 验证 Docker 安装
-    if ! docker --version > /dev/null 2>&1; then
-        echo "Docker安装失败"
-        exit 1
-    fi
-else
-    echo "Docker已安装，跳过安装步骤"
-fi
-
-# 检查并设置 docker compose 命令
-setup_docker_compose() {
-    if docker compose version &>/dev/null; then
-        DOCKER_COMPOSE_CMD="docker compose"
-        return 0
-    fi
-    if command -v docker-compose &>/dev/null; then
-        DOCKER_COMPOSE_CMD="docker-compose"
-        return 0
-    fi
-    # 安装 compose-plugin 或 docker-compose
+install_compose(){
+  if docker compose version &>/dev/null; then
+    DCMD="docker compose"
+  elif command -v docker-compose &>/dev/null; then
+    DCMD="docker-compose"
+  else
+    # 安装插件
     case "$OS_LIKE" in
-        *debian*|*ubuntu*)
-            sudo apt-get update
-            sudo apt-get install -y docker-compose-plugin
-            ;;
-        *rhel*|*fedora*|*centos*)
-            if command -v dnf &>/dev/null; then
-                sudo dnf install -y docker-compose-plugin
-            else
-                sudo yum install -y docker-compose-plugin
-            fi
-            ;;
-        *arch*)
-            sudo pacman -S --noconfirm docker-compose
-            ;;
-        *alpine*)
-            sudo apk add docker-compose
-            ;;
-        *suse*)
-            sudo zypper install -y docker-compose
-            ;;
-        *)
-            echo "不支持的操作系统: $OS"
-            exit 1
-            ;;
+      *debian*|*ubuntu*) sudo apt-get install -y docker-compose-plugin ;;
+      *rhel*|*centos*|*fedora*)
+        if command -v dnf &>/dev/null; then
+          sudo dnf install -y docker-compose-plugin
+        else
+          sudo yum install -y docker-compose-plugin
+        fi
+        ;;
+      *arch*) sudo pacman -Sy --noconfirm docker-compose ;;
+      *alpine*) sudo apk add docker-compose ;;
+      *suse*) sudo zypper install -y docker-compose ;;
+      *) ;;
     esac
     if docker compose version &>/dev/null; then
-        DOCKER_COMPOSE_CMD="docker compose"
-        return 0
-    elif command -v docker-compose &>/dev/null; then
-        DOCKER_COMPOSE_CMD="docker-compose"
-        return 0
+      DCMD="docker compose"
     else
-        echo "docker compose 安装失败"
-        exit 1
+      DCMD="docker-compose"
     fi
+  fi
 }
-setup_docker_compose
 
-# 创建所需目录
-sudo mkdir -p /data/docker/sillytavern
+# 安装检测
+if ! command -v docker &>/dev/null; then
+  install_docker
+fi
+install_compose
 
-# 写入 docker-compose.yaml 文件内容
-cat <<EOF | sudo tee /data/docker/sillytavern/docker-compose.yaml
+# docker 组
+LOGIN_USER=$(logname 2>/dev/null || echo "$SUDO_USER")
+if ! id -nG "$LOGIN_USER" | grep -qw docker; then
+  echo "将用户 '$LOGIN_USER' 加入 docker 组，需要重新登录生效"
+  sudo usermod -aG docker "$LOGIN_USER" || true
+fi
+
+# =========================
+# 目录与 Compose 文件
+# =========================
+BASE=/data/docker/sillytavern
+sudo mkdir -p $BASE/{plugins,config,data,extensions}
+
+cat <<EOF | sudo tee $BASE/docker-compose.yaml
 version: '3.8'
-
 services:
   sillytavern:
     image: ghcr.io/sillytavern/sillytavern:latest
     container_name: sillytavern
-    networks:
-      - DockerNet
     ports:
       - "8000:8000"
     volumes:
-      - ./plugins:/home/node/app/plugins:rw
-      - ./config:/home/node/app/config:rw
-      - ./data:/home/node/app/data:rw
-      - ./extensions:/home/node/app/public/scripts/extensions/third-party:rw
+      - $BASE/plugins:/home/node/app/plugins:rw
+      - $BASE/config:/home/node/app/config:rw
+      - $BASE/data:/home/node/app/data:rw
+      - $BASE/extensions:/home/node/app/public/scripts/extensions/third-party:rw
     restart: always
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
@@ -203,87 +180,71 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     command: --interval 86400 --cleanup --label-enable
     restart: always
-    networks:
-      - DockerNet
-
-networks:
-  DockerNet:
-    name: DockerNet
 EOF
 
-# 交互：是否开启外网访问
+# =========================
+# 外网访问配置
+# =========================
 enable_external_access="n"
-echo "请选择是否开启外网访问"
-while true; do
-    echo -n "是否开启外网访问？(y/n): "
-    read -r response </dev/tty
-    case $response in
-        [Yy]* )
-            enable_external_access="y"
-            break
-            ;;
-        [Nn]* )
-            enable_external_access="n"
-            break
-            ;;
-        * )
-            echo "请输入 y 或 n"
-            ;;
+if [[ $AUTO_MODE -eq 1 ]]; then
+  enable_external_access="n"
+else
+  echo
+  echo "请选择是否开启外网访问（Basic Auth）"
+  while true; do
+    read -p "是否开启外网访问? (y/n): " yn
+    case $yn in
+      [Yy]*) enable_external_access="y"; break ;;
+      [Nn]*) enable_external_access="n"; break ;;
+      *) echo "请回答 y 或 n" ;;
     esac
-done
-echo "您选择了: $([ "$enable_external_access" = "y" ] && echo "开启" || echo "不开启")外网访问"
+  done
+fi
 
 # 生成随机字符串
-generate_random_string() {
-    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16
+rand(){
+  head -c32 /dev/urandom | base64 | tr -d '/+=' | cut -c1-32
 }
 
-if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
-    # 让用户选择用户名密码的生成方式
-    echo "请选择用户名密码的生成方式:"
-    echo "1. 随机生成"
-    echo "2. 手动输入(推荐)"
+if [[ $enable_external_access == "y" ]]; then
+  echo
+  echo "== 配置用户名/密码 =="
+  if [[ $AUTO_MODE -eq 1 ]]; then
+    username=$(rand)
+    password=$(rand)
+  else
+    echo "1) 随机生成"
+    echo "2) 手动输入"
     while true; do
-        echo -n "请输入选项(1/2): "
-        read -r choice </dev/tty
-        case $choice in
-            1)
-                username=$(generate_random_string)
-                password=$(generate_random_string)
-                echo "已生成随机用户名: $username"
-                echo "已生成随机密码: $password"
-                break
-                ;;
-            2)
-                while true; do
-                    echo -n "请输入用户名(不可以使用纯数字): "
-                    read -r username </dev/tty
-                    if [[ ! $username =~ ^[0-9]+$ && -n $username ]]; then
-                        break
-                    else
-                        echo "用户名不能为纯数字且不能为空"
-                    fi
-                done
-                while true; do
-                    echo -n "请输入密码(不可以使用纯数字): "
-                    read -r password </dev/tty
-                    if [[ ! $password =~ ^[0-9]+$ && -n $password ]]; then
-                        break
-                    else
-                        echo "密码不能为纯数字且不能为空"
-                    fi
-                done
-                break
-                ;;
-            *)
-                echo "请输入 1 或 2"
-                ;;
-        esac
+      read -p "请选择 (1/2): " opt
+      case $opt in
+        1) username=$(rand); password=$(rand); break ;;
+        2)
+          while true; do
+            read -p "输入用户名(非纯数字): " u
+            if [[ ! $u =~ ^[0-9]+$ && -n $u ]]; then
+              username=$u; break
+            else
+              echo "用户名不能为纯数字且不能为空"
+            fi
+          done
+          while true; do
+            read -p "输入密码(非纯数字): " p
+            if [[ ! $p =~ ^[0-9]+$ && -n $p ]]; then
+              password=$p; break
+            else
+              echo "密码不能为纯数字且不能为空"
+            fi
+          done
+          break
+          ;;
+        *) echo "请输入 1 或 2" ;;
+      esac
     done
+  fi
 
-    # 创建 config 目录和配置文件
-    sudo mkdir -p /data/docker/sillytavern/config
-    cat <<EOF | sudo tee /data/docker/sillytavern/config/config.yaml
+  sudo mkdir -p $BASE/config
+  cat <<EOCFG | sudo tee $BASE/config/config.yaml
 dataRoot: ./data
 cardsCacheCapacity: 100
 listen: true
@@ -316,7 +277,7 @@ enableDiscreetLogin: false
 autheliaAuth: false
 perUserBasicAuth: false
 sessionTimeout: 86400
-cookieSecret: $(generate_random_string)
+cookieSecret: $(rand)
 disableCsrfProtection: false
 securityOverride: false
 autorun: true
@@ -371,41 +332,35 @@ claude:
   enableSystemPromptCache: false
   cachingAtDepth: -1
 enableServerPlugins: false
-EOF
+EOCFG
 
-    echo "已开启外网访问"
-    echo "用户名: $username"
-    echo "密码: $password"
-else
-    echo "未开启外网访问，将使用默认配置。"
+  echo "已开启外网访问：用户名=$username 密码=$password"
 fi
 
-# 启动/重启服务
-cd /data/docker/sillytavern
-
-if sudo $DOCKER_COMPOSE_CMD ps | grep -q "sillytavern.*Up"; then
-    echo "检测到服务正在运行，正在重启..."
-    sudo $DOCKER_COMPOSE_CMD down
+# =========================
+# 启动服务
+# =========================
+cd $BASE
+if sudo $DCMD ps --filter name=sillytavern | grep -q sillytavern; then
+  echo "正在重启容器..."
+  sudo $DCMD down
 fi
 
 echo "正在启动服务..."
-sudo $DOCKER_COMPOSE_CMD up -d
+sudo $DCMD up -d
 
-# 检查服务是否成功启动
-if [ $? -eq 0 ]; then
-    # 获取外网IP
-    if command -v curl &>/dev/null; then
-        public_ip=$(curl -sS https://api.ipify.org)
-    else
-        public_ip="(未检测到 curl，无法获取外网IP)"
-    fi
-    echo "SillyTavern 已成功部署"
-    echo "访问地址: http://${public_ip}:8000"
-    if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
-        echo "用户名: ${username}"
-        echo "密码: ${password}"
-    fi
+# =========================
+# 查看结果
+# =========================
+echo
+if command -v curl &>/dev/null; then
+  public_ip=$(curl -sS https://api.ipify.org)
 else
-    echo "服务启动失败，请检查日志"
-    sudo $DOCKER_COMPOSE_CMD logs
+  public_ip="(未检测到 curl，无法获取外网IP)"
+fi
+echo "SillyTavern 已成功部署"
+echo "访问地址: http://${public_ip}:8000"
+if [[ $enable_external_access == "y" ]]; then
+  echo "用户名: $username"
+  echo "密码: $password"
 fi
