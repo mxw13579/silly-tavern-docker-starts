@@ -1,22 +1,39 @@
 #!/bin/bash
 set -euo pipefail
 
-# 检查是否为交互式终端
+# 判断是否 root
+if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+    IS_ROOT=1
+    REAL_USER="${SUDO_USER:-root}"
+else
+    SUDO="sudo"
+    IS_ROOT=0
+    REAL_USER="${USER}"
+fi
+
+# 检查是否有交互式终端
 if ! [ -t 0 ]; then
-    echo "请不要用 'curl ... | sudo bash' 方式运行本脚本。"
-    echo "请用 'curl ... | bash' 或先下载后执行。"
+    if ! [ -e /dev/tty ]; then
+        echo "本脚本需要交互式终端，请用 ssh 或本地终端运行。"
+        exit 1
+    fi
+fi
+
+# 检查 sudo（仅普通用户时）
+if [ "$IS_ROOT" -eq 0 ] && ! command -v sudo &>/dev/null; then
+    echo "需要 sudo 权限，请先安装 sudo 并赋予当前用户 sudo 权限。"
     exit 1
 fi
 
-# 检查是否具有sudo权限
-if ! command -v sudo &> /dev/null; then
-    echo "需要sudo权限来安装Docker"
-    exit 1
-fi
-if ! sudo -n true 2>/dev/null; then
-    echo "当前用户没有sudo权限，请切换到有sudo权限的用户"
-    exit 1
-fi
+# 以 root 执行命令的函数
+run_as_root() {
+    if [ "$IS_ROOT" -eq 1 ]; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
 
 # 检查系统类型
 echo "检测系统类型..."
@@ -25,7 +42,6 @@ if [ -f /etc/os-release ]; then
     OS="${ID,,}"
     OS_LIKE="${ID_LIKE:-$OS}"
     OS_VERSION_CODENAME="${VERSION_CODENAME:-}"
-    OS_VERSION_ID="${VERSION_ID:-}"
 elif [ -f /etc/redhat-release ]; then
     OS="rhel"
     OS_LIKE="rhel"
@@ -45,74 +61,60 @@ fi
 
 echo "当前操作系统类型为 $OS"
 
-# 获取真实用户
-if [ "${SUDO_USER:-}" ]; then
-    REAL_USER="$SUDO_USER"
-else
-    REAL_USER="$(logname 2>/dev/null || whoami)"
-fi
-
 # 安装 Docker
 install_docker() {
     case "$OS" in
         debian|raspbian)
-            echo "在 Debian 系统上安装 Docker..."
-            sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
-            sudo apt-get update
-            sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
-            sudo install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            sudo chmod a+r /etc/apt/keyrings/docker.gpg
+            run_as_root apt-get remove -y docker docker-engine docker.io containerd runc || true
+            run_as_root apt-get update
+            run_as_root apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
+            run_as_root install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/debian/gpg | run_as_root gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            run_as_root chmod a+r /etc/apt/keyrings/docker.gpg
             codename="${OS_VERSION_CODENAME:-$(lsb_release -cs 2>/dev/null || echo "bookworm")}"
             echo \
                 "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
-                $codename stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            sudo apt-get update
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                $codename stable" | run_as_root tee /etc/apt/sources.list.d/docker.list > /dev/null
+            run_as_root apt-get update
+            run_as_root apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
             ;;
         ubuntu|linuxmint|elementary|pop)
-            echo "在 Ubuntu 系统上安装 Docker..."
-            sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
-            sudo apt-get update
-            sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
-            sudo install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            sudo chmod a+r /etc/apt/keyrings/docker.gpg
+            run_as_root apt-get remove -y docker docker-engine docker.io containerd runc || true
+            run_as_root apt-get update
+            run_as_root apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
+            run_as_root install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | run_as_root gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            run_as_root chmod a+r /etc/apt/keyrings/docker.gpg
             codename="${OS_VERSION_CODENAME:-$(lsb_release -cs 2>/dev/null || echo "jammy")}"
             echo \
                 "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-                $codename stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            sudo apt-get update
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                $codename stable" | run_as_root tee /etc/apt/sources.list.d/docker.list > /dev/null
+            run_as_root apt-get update
+            run_as_root apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
             ;;
         centos|rhel|rocky|almalinux|ol)
-            echo "在 RHEL/CentOS 系统上安装 Docker..."
-            sudo yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
-            sudo yum install -y yum-utils
-            sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-            sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            run_as_root yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
+            run_as_root yum install -y yum-utils
+            run_as_root yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+            run_as_root yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
             ;;
         fedora)
-            echo "在 Fedora 系统上安装 Docker..."
-            sudo dnf remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
-            sudo dnf -y install dnf-plugins-core
-            sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-            sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            run_as_root dnf remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
+            run_as_root dnf -y install dnf-plugins-core
+            run_as_root dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+            run_as_root dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
             ;;
         arch)
-            echo "在 Arch Linux 系统上安装 Docker..."
-            sudo pacman -Sy --noconfirm
-            sudo pacman -S --noconfirm docker docker-compose
+            run_as_root pacman -Sy --noconfirm
+            run_as_root pacman -S --noconfirm docker docker-compose
             ;;
         alpine)
-            echo "在 Alpine Linux 系统上安装 Docker..."
-            sudo apk update
-            sudo apk add docker docker-compose
+            run_as_root apk update
+            run_as_root apk add docker docker-compose
             ;;
         suse|opensuse-leap|opensuse-tumbleweed)
-            echo "在 openSUSE 系统上安装 Docker..."
-            sudo zypper refresh
-            sudo zypper install -y docker docker-compose
+            run_as_root zypper refresh
+            run_as_root zypper install -y docker docker-compose
             ;;
         *)
             echo "不支持的操作系统: $OS"
@@ -126,19 +128,21 @@ if ! command -v docker &> /dev/null; then
     install_docker
     # 启动 Docker 服务
     if [ "$OS" = "alpine" ]; then
-        sudo rc-update add docker boot
-        sudo service docker start
+        run_as_root rc-update add docker boot
+        run_as_root service docker start
     elif command -v systemctl &>/dev/null; then
-        sudo systemctl enable --now docker
+        run_as_root systemctl enable --now docker
     elif command -v service &>/dev/null; then
-        sudo service docker start
+        run_as_root service docker start
     else
         echo "无法自动启动 Docker 服务，请手动启动"
     fi
-    # 加入 docker 用户组（可选）
-    if ! id "$REAL_USER" | grep -qw docker; then
-        sudo usermod -aG docker "$REAL_USER" || true
-        echo "已将 $REAL_USER 加入 docker 组，可能需要重新登录后生效"
+    # 加入 docker 用户组（仅普通用户）
+    if [ "$IS_ROOT" -eq 0 ]; then
+        if ! id "$REAL_USER" | grep -qw docker; then
+            run_as_root usermod -aG docker "$REAL_USER" || true
+            echo "已将 $REAL_USER 加入 docker 组，可能需要重新登录后生效"
+        fi
     fi
     # 验证 Docker 安装
     if ! docker --version > /dev/null 2>&1; then
@@ -163,24 +167,24 @@ setup_docker_compose() {
     # 安装 compose-plugin 或 docker-compose
     case "$OS_LIKE" in
         *debian*|*ubuntu*)
-            sudo apt-get update
-            sudo apt-get install -y docker-compose-plugin || sudo apt-get install -y docker-compose
+            run_as_root apt-get update
+            run_as_root apt-get install -y docker-compose-plugin || run_as_root apt-get install -y docker-compose
             ;;
         *rhel*|*fedora*|*centos*)
             if command -v dnf &>/dev/null; then
-                sudo dnf install -y docker-compose-plugin || sudo dnf install -y docker-compose
+                run_as_root dnf install -y docker-compose-plugin || run_as_root dnf install -y docker-compose
             else
-                sudo yum install -y docker-compose-plugin || sudo yum install -y docker-compose
+                run_as_root yum install -y docker-compose-plugin || run_as_root yum install -y docker-compose
             fi
             ;;
         *arch*)
-            sudo pacman -S --noconfirm docker-compose
+            run_as_root pacman -S --noconfirm docker-compose
             ;;
         *alpine*)
-            sudo apk add docker-compose
+            run_as_root apk add docker-compose
             ;;
         *suse*)
-            sudo zypper install -y docker-compose
+            run_as_root zypper install -y docker-compose
             ;;
         *)
             echo "不支持的操作系统: $OS"
@@ -201,10 +205,10 @@ setup_docker_compose() {
 setup_docker_compose
 
 # 创建所需目录
-sudo mkdir -p /data/docker/sillytavern
+run_as_root mkdir -p /data/docker/sillytavern
 
 # 写入 docker-compose.yaml 文件内容
-sudo tee /data/docker/sillytavern/docker-compose.yaml > /dev/null <<EOF
+run_as_root tee /data/docker/sillytavern/docker-compose.yaml > /dev/null <<EOF
 version: '3.8'
 
 services:
@@ -269,7 +273,6 @@ generate_random_string() {
 }
 
 if [[ "$enable_external_access" =~ ^[Yy]$ ]]; then
-    # 让用户选择用户名密码的生成方式
     echo "请选择用户名密码的生成方式:"
     echo "1. 随机生成"
     echo "2. 手动输入(推荐)"
@@ -318,8 +321,8 @@ if [[ "$enable_external_access" =~ ^[Yy]$ ]]; then
     done
 
     # 创建 config 目录和配置文件
-    sudo mkdir -p /data/docker/sillytavern/config
-    sudo tee /data/docker/sillytavern/config/config.yaml > /dev/null <<EOF
+    run_as_root mkdir -p /data/docker/sillytavern/config
+    run_as_root tee /data/docker/sillytavern/config/config.yaml > /dev/null <<EOF
 dataRoot: ./data
 cardsCacheCapacity: 100
 listen: true
@@ -419,14 +422,13 @@ fi
 # 启动/重启服务
 cd /data/docker/sillytavern
 
-if sudo $DOCKER_COMPOSE_CMD ps | grep -q "sillytavern.*Up"; then
+if $SUDO $DOCKER_COMPOSE_CMD ps | grep -q "sillytavern.*Up"; then
     echo "检测到服务正在运行，正在重启..."
-    sudo $DOCKER_COMPOSE_CMD down
+    $SUDO $DOCKER_COMPOSE_CMD down
 fi
 
 echo "正在启动服务..."
-if sudo $DOCKER_COMPOSE_CMD up -d; then
-    # 获取外网IP
+if $SUDO $DOCKER_COMPOSE_CMD up -d; then
     if command -v curl &>/dev/null; then
         public_ip=$(curl -sS https://api.ipify.org)
     else
@@ -440,5 +442,5 @@ if sudo $DOCKER_COMPOSE_CMD up -d; then
     fi
 else
     echo "服务启动失败，请检查日志"
-    sudo $DOCKER_COMPOSE_CMD logs
+    $SUDO $DOCKER_COMPOSE_CMD logs
 fi
