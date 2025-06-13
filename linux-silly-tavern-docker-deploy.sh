@@ -1,22 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-# =========================
-# 参数与用法
-# =========================
-usage(){
-  cat <<EOF
-用法: $0 [--auto|-y]
-  --auto, -y    跳过所有交互，用默认（不开启外网访问）直接部署
-EOF
-  exit 1
-}
-
+# 1) 检测非交互环境（stdin 不是 TTY）或 -y 参数，进入自动模式
 AUTO_MODE=0
+[ ! -t 0 ] && AUTO_MODE=1
 while [[ $# -gt 0 ]]; do
   case $1 in
     -y|--auto) AUTO_MODE=1; shift ;;
-    *) usage ;;
+    *) echo "用法: $0 [--auto|-y]" >&2; exit 1 ;;
   esac
 done
 
@@ -155,8 +145,7 @@ fi
 # =========================
 BASE=/data/docker/sillytavern
 sudo mkdir -p $BASE/{plugins,config,data,extensions}
-
-cat <<EOF | sudo tee $BASE/docker-compose.yaml
+cat <<EOF | sudo tee $BASE/docker-compose.yaml >/dev/null
 version: '3.8'
 services:
   sillytavern:
@@ -172,7 +161,6 @@ services:
     restart: always
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
-
   watchtower:
     image: containrrr/watchtower
     container_name: watchtower
@@ -185,13 +173,13 @@ EOF
 # =========================
 # 外网访问配置
 # =========================
-enable_external_access="n"
 if [[ $AUTO_MODE -eq 1 ]]; then
   enable_external_access="n"
 else
   echo
   echo "请选择是否开启外网访问（Basic Auth）"
   while true; do
+    # read -p 在 TTY 下正常，否则永远读不到输入会死循环
     read -p "是否开启外网访问? (y/n): " yn
     case $yn in
       [Yy]*) enable_external_access="y"; break ;;
