@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # 判断是否 root
@@ -12,15 +12,13 @@ else
     REAL_USER="${USER}"
 fi
 
-# 检查是否有交互式终端
+# 确保有交互式终端
 if ! [ -t 0 ]; then
-    if ! [ -e /dev/tty ]; then
-        echo "本脚本需要交互式终端，请用 ssh 或本地终端运行。"
-        exit 1
-    fi
+    echo "本脚本需要交互式终端，请用 ssh 或本地终端运行。"
+    exit 1
 fi
 
-# 检查 sudo（仅普通用户时）
+# 普通用户时检查 sudo
 if [ "$IS_ROOT" -eq 0 ] && ! command -v sudo &>/dev/null; then
     echo "需要 sudo 权限，请先安装 sudo 并赋予当前用户 sudo 权限。"
     exit 1
@@ -35,7 +33,7 @@ run_as_root() {
     fi
 }
 
-# 检查系统类型
+# 检测系统类型
 echo "检测系统类型..."
 if [ -f /etc/os-release ]; then
     . /etc/os-release
@@ -43,22 +41,17 @@ if [ -f /etc/os-release ]; then
     OS_LIKE="${ID_LIKE:-$OS}"
     OS_VERSION_CODENAME="${VERSION_CODENAME:-}"
 elif [ -f /etc/redhat-release ]; then
-    OS="rhel"
-    OS_LIKE="rhel"
+    OS="rhel"; OS_LIKE="rhel"
 elif [ -f /etc/arch-release ]; then
-    OS="arch"
-    OS_LIKE="arch"
+    OS="arch"; OS_LIKE="arch"
 elif [ -f /etc/alpine-release ]; then
-    OS="alpine"
-    OS_LIKE="alpine"
+    OS="alpine"; OS_LIKE="alpine"
 elif [ -f /etc/SuSE-release ]; then
-    OS="suse"
-    OS_LIKE="suse"
+    OS="suse"; OS_LIKE="suse"
 else
     echo "无法确定操作系统类型"
     exit 1
 fi
-
 echo "当前操作系统类型为 $OS"
 
 # 安装 Docker
@@ -69,37 +62,41 @@ install_docker() {
             run_as_root apt-get update
             run_as_root apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
             run_as_root install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/debian/gpg | run_as_root gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            curl -fsSL https://download.docker.com/linux/debian/gpg \
+              | run_as_root gpg --dearmor -o /etc/apt/keyrings/docker.gpg
             run_as_root chmod a+r /etc/apt/keyrings/docker.gpg
             codename="${OS_VERSION_CODENAME:-$(lsb_release -cs 2>/dev/null || echo "bookworm")}"
-            echo \
-                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
-                $codename stable" | run_as_root tee /etc/apt/sources.list.d/docker.list > /dev/null
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+              https://download.docker.com/linux/debian $codename stable" \
+              | run_as_root tee /etc/apt/sources.list.d/docker.list > /dev/null
             run_as_root apt-get update
-            run_as_root apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            run_as_root apt-get install -y docker-ce docker-ce-cli containerd.io \
+                                          docker-buildx-plugin docker-compose-plugin
             ;;
         ubuntu|linuxmint|elementary|pop)
             run_as_root apt-get remove -y docker docker-engine docker.io containerd runc || true
             run_as_root apt-get update
             run_as_root apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
             run_as_root install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | run_as_root gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+              | run_as_root gpg --dearmor -o /etc/apt/keyrings/docker.gpg
             run_as_root chmod a+r /etc/apt/keyrings/docker.gpg
             codename="${OS_VERSION_CODENAME:-$(lsb_release -cs 2>/dev/null || echo "jammy")}"
-            echo \
-                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-                $codename stable" | run_as_root tee /etc/apt/sources.list.d/docker.list > /dev/null
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+              https://download.docker.com/linux/ubuntu $codename stable" \
+              | run_as_root tee /etc/apt/sources.list.d/docker.list > /dev/null
             run_as_root apt-get update
-            run_as_root apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            run_as_root apt-get install -y docker-ce docker-ce-cli containerd.io \
+                                          docker-buildx-plugin docker-compose-plugin
             ;;
         centos|rhel|rocky|almalinux|ol)
-            run_as_root yum remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
+            run_as_root yum remove -y docker docker-client docker-common docker-engine || true
             run_as_root yum install -y yum-utils
             run_as_root yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
             run_as_root yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
             ;;
         fedora)
-            run_as_root dnf remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
+            run_as_root dnf remove -y docker docker-client docker-common docker-engine || true
             run_as_root dnf -y install dnf-plugins-core
             run_as_root dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
             run_as_root dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
@@ -123,80 +120,72 @@ install_docker() {
     esac
 }
 
-# 检查并安装 Docker
-if ! command -v docker &> /dev/null; then
+# 如果没装 Docker，就安装并启动
+if ! command -v docker &>/dev/null; then
     install_docker
-    # 启动 Docker 服务
     if [ "$OS" = "alpine" ]; then
         run_as_root rc-update add docker boot
         run_as_root service docker start
     elif command -v systemctl &>/dev/null; then
         run_as_root systemctl enable --now docker
-    elif command -v service &>/dev/null; then
-        run_as_root service docker start
     else
-        echo "无法自动启动 Docker 服务，请手动启动"
+        run_as_root service docker start
     fi
-    # 加入 docker 用户组（仅普通用户）
-    if [ "$IS_ROOT" -eq 0 ]; then
-        if ! id "$REAL_USER" | grep -qw docker; then
-            run_as_root usermod -aG docker "$REAL_USER" || true
-            echo "已将 $REAL_USER 加入 docker 组，可能需要重新登录后生效"
-        fi
-    fi
-    # 验证 Docker 安装
-    if ! docker --version > /dev/null 2>&1; then
-        echo "Docker安装失败"
-        exit 1
-    fi
+
+    [ "$IS_ROOT" -eq 0 ] && {
+      run_as_root usermod -aG docker "$REAL_USER" || true
+      echo "已将 $REAL_USER 加入 docker 组，可能需要重新登录后生效"
+    }
+
+    docker --version &>/dev/null || {
+      echo "Docker 安装失败"
+      exit 1
+    }
 else
-    echo "Docker已安装，跳过安装步骤"
+    echo "Docker 已安装，跳过安装"
 fi
 
-# 检查并设置 docker compose 命令
+# 设置 docker compose 命令
 DOCKER_COMPOSE_CMD=""
 setup_docker_compose() {
     if docker compose version &>/dev/null; then
-        DOCKER_COMPOSE_CMD="docker compose"
-        return 0
+        DOCKER_COMPOSE_CMD="docker compose"; return
     fi
     if command -v docker-compose &>/dev/null; then
-        DOCKER_COMPOSE_CMD="docker-compose"
-        return 0
+        DOCKER_COMPOSE_CMD="docker-compose"; return
     fi
-    # 安装 compose-plugin 或 docker-compose
+
     case "$OS_LIKE" in
-        *debian*|*ubuntu*)
-            run_as_root apt-get update
-            run_as_root apt-get install -y docker-compose-plugin || run_as_root apt-get install -y docker-compose
-            ;;
-        *rhel*|*fedora*|*centos*)
-            if command -v dnf &>/dev/null; then
-                run_as_root dnf install -y docker-compose-plugin || run_as_root dnf install -y docker-compose
-            else
-                run_as_root yum install -y docker-compose-plugin || run_as_root yum install -y docker-compose
-            fi
-            ;;
-        *arch*)
-            run_as_root pacman -S --noconfirm docker-compose
-            ;;
-        *alpine*)
-            run_as_root apk add docker-compose
-            ;;
-        *suse*)
-            run_as_root zypper install -y docker-compose
-            ;;
-        *)
-            echo "不支持的操作系统: $OS"
-            exit 1
-            ;;
+      *debian*|*ubuntu*)
+        run_as_root apt-get update
+        run_as_root apt-get install -y docker-compose-plugin || run_as_root apt-get install -y docker-compose
+        ;;
+      *rhel*|*fedora*|*centos*)
+        if command -v dnf &>/dev/null; then
+          run_as_root dnf install -y docker-compose-plugin || run_as_root dnf install -y docker-compose
+        else
+          run_as_root yum install -y docker-compose-plugin || run_as_root yum install -y docker-compose
+        fi
+        ;;
+      *arch*)
+        run_as_root pacman -S --noconfirm docker-compose
+        ;;
+      *alpine*)
+        run_as_root apk add docker-compose
+        ;;
+      *suse*)
+        run_as_root zypper install -y docker-compose
+        ;;
+      *)
+        echo "不支持的系统: $OS"
+        exit 1
+        ;;
     esac
+
     if docker compose version &>/dev/null; then
         DOCKER_COMPOSE_CMD="docker compose"
-        return 0
     elif command -v docker-compose &>/dev/null; then
         DOCKER_COMPOSE_CMD="docker-compose"
-        return 0
     else
         echo "docker compose 安装失败"
         exit 1
@@ -204,11 +193,12 @@ setup_docker_compose() {
 }
 setup_docker_compose
 
-# 创建所需目录
+# 创建工作目录
 run_as_root mkdir -p /data/docker/sillytavern
+cd /data/docker/sillytavern
 
-# 写入 docker-compose.yaml 文件内容
-run_as_root tee /data/docker/sillytavern/docker-compose.yaml > /dev/null <<EOF
+# 写入 docker-compose.yaml
+run_as_root tee docker-compose.yaml > /dev/null << 'EOF'
 version: '3.8'
 
 services:
@@ -245,84 +235,54 @@ EOF
 
 # 交互：是否开启外网访问
 enable_external_access="n"
-echo "请选择是否开启外网访问"
 while true; do
-    echo -n "是否开启外网访问？(y/n): "
-    if ! read -r response </dev/tty 2>/dev/null; then
-        read -r response
-    fi
-    case "$response" in
-        [Yy]* )
-            enable_external_access="y"
-            break
-            ;;
-        [Nn]* )
-            enable_external_access="n"
-            break
-            ;;
-        * )
-            echo "请输入 y 或 n"
-            ;;
+    read -rp "是否开启外网访问？(y/n): " yn
+    case "$yn" in
+      [Yy]*) enable_external_access="y"; break;;
+      [Nn]*) enable_external_access="n"; break;;
+      *) echo "请输入 y 或 n";;
     esac
 done
-echo "您选择了: $([ "$enable_external_access" = "y" ] && echo "开启" || echo "不开启")外网访问"
 
-# 生成随机字符串
+# 随机串函数
 generate_random_string() {
-    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16
+    tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16
 }
 
-if [[ "$enable_external_access" =~ ^[Yy]$ ]]; then
-    echo "请选择用户名密码的生成方式:"
-    echo "1. 随机生成"
-    echo "2. 手动输入(推荐)"
+if [ "$enable_external_access" = "y" ]; then
+    echo "请选择用户名密码生成方式：1) 随机生成  2) 手动输入"
     while true; do
-        echo -n "请输入选项(1/2): "
-        if ! read -r choice </dev/tty 2>/dev/null; then
-            read -r choice
-        fi
-        case "$choice" in
-            1)
-                username="$(generate_random_string)"
-                password="$(generate_random_string)"
-                echo "已生成随机用户名: $username"
-                echo "已生成随机密码: $password"
-                break
-                ;;
-            2)
-                while true; do
-                    echo -n "请输入用户名(不可以使用纯数字): "
-                    if ! read -r username </dev/tty 2>/dev/null; then
-                        read -r username
-                    fi
-                    if [[ ! "${username}" =~ ^[0-9]+$ && -n "${username}" ]]; then
-                        break
-                    else
-                        echo "用户名不能为纯数字且不能为空"
-                    fi
-                done
-                while true; do
-                    echo -n "请输入密码(不可以使用纯数字): "
-                    if ! read -r password </dev/tty 2>/dev/null; then
-                        read -r password
-                    fi
-                    if [[ ! "${password}" =~ ^[0-9]+$ && -n "${password}" ]]; then
-                        break
-                    else
-                        echo "密码不能为纯数字且不能为空"
-                    fi
-                done
-                break
-                ;;
-            *)
-                echo "请输入 1 或 2"
-                ;;
-        esac
+      read -rp "请输入选项(1/2): " choice
+      case "$choice" in
+        1)
+          username=$(generate_random_string)
+          password=$(generate_random_string)
+          echo "随机用户名: $username"
+          echo "随机密码: $password"
+          break
+          ;;
+        2)
+          while true; do
+            read -rp "请输入用户名(非纯数字): " username
+            [[ -n $username && ! $username =~ ^[0-9]+$ ]] && break
+            echo "用户名不能为空且不能是纯数字"
+          done
+          while true; do
+            read -rp "请输入密码(非纯数字): " password
+            [[ -n $password && ! $password =~ ^[0-9]+$ ]] && break
+            echo "密码不能为空且不能是纯数字"
+          done
+          break
+          ;;
+        *)
+          echo "请输入 1 或 2"
+          ;;
+      esac
     done
 
-    # 创建 config 目录和配置文件
-    run_as_root mkdir -p /data/docker/sillytavern/config
-    run_as_root tee /data/docker/sillytavern/config/config.yaml > /dev/null <<EOF
+    # 写入 config/config.yaml
+    run_as_root mkdir -p config
+    run_as_root tee config/config.yaml > /dev/null <<EOF
 dataRoot: ./data
 cardsCacheCapacity: 100
 listen: true
@@ -412,35 +372,30 @@ claude:
 enableServerPlugins: false
 EOF
 
-    echo "已开启外网访问"
-    echo "用户名: $username"
-    echo "密码: $password"
+    echo "外网访问已开启，用户名: $username  密码: $password"
 else
-    echo "未开启外网访问，将使用默认配置。"
+    echo "未开启外网访问，使用默认内部访问配置"
 fi
 
-# 启动/重启服务
-cd /data/docker/sillytavern
-
-if $SUDO $DOCKER_COMPOSE_CMD ps | grep -q "sillytavern.*Up"; then
-    echo "检测到服务正在运行，正在重启..."
+# 启动或重启服务
+if $SUDO $DOCKER_COMPOSE_CMD ps | grep -q sillytavern.*Up; then
+    echo "检测到服务已在运行，执行重启..."
     $SUDO $DOCKER_COMPOSE_CMD down
 fi
 
-echo "正在启动服务..."
-if $SUDO $DOCKER_COMPOSE_CMD up -d; then
+echo "启动服务中..."
+$SUDO $DOCKER_COMPOSE_CMD up -d
+
+if [ $? -eq 0 ]; then
     if command -v curl &>/dev/null; then
         public_ip=$(curl -sS https://api.ipify.org)
     else
-        public_ip="(未检测到 curl，无法获取外网IP)"
+        public_ip="(未安装 curl，无法获取外网 IP)"
     fi
-    echo "SillyTavern 已成功部署"
-    echo "访问地址: http://${public_ip}:8000"
-    if [[ "$enable_external_access" =~ ^[Yy]$ ]]; then
-        echo "用户名: ${username}"
-        echo "密码: ${password}"
-    fi
+    echo "部署成功！访问地址: http://${public_ip}:8000"
+    [ "$enable_external_access" = "y" ] && echo "用户名: $username   密码: $password"
 else
-    echo "服务启动失败，请检查日志"
+    echo "服务启动失败，请检查日志："
     $SUDO $DOCKER_COMPOSE_CMD logs
+    exit 1
 fi
