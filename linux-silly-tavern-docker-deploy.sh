@@ -419,8 +419,12 @@ if [ $? -eq 0 ]; then
     echo "--------------------------------------------------"
     echo "✅ SillyTavern 已成功部署！"
     echo "--------------------------------------------------"
-    public_ip=$(curl -sS https://api.ipify.org)
+    # 从 ipinfo.io 的返回结果中解析出 IP 地址
+    public_ip=$(curl -sS ipinfo.io | grep '"ip":' | cut -d'"' -f4)
+
+    # 如果获取失败，则提供一个占位符
     [ -z "$public_ip" ] && public_ip="<你的服务器公网IP>"
+
     echo "访问地址: http://${public_ip}:8000"
     if [[ $enable_external_access == "y" ]]; then
         echo "用户名: ${username}"
