@@ -11,7 +11,7 @@ fi
 # -----------------------------------------------------------------------------
 echo "正在检测服务器位置..."
 # 使用curl请求ipinfo.io并用grep和cut解析，避免需要安装jq
-COUNTRY_CODE=$(curl -sS ipinfo.io | grep '"country":' | cut -d'"' -f4)
+COUNTRY_CODE=$(curl -sS --connect-timeout 5 ipinfo.io | grep '"country":' | cut -d'"' -f4)
 
 USE_CHINA_MIRROR=false
 if [ "$COUNTRY_CODE" = "CN" ]; then
@@ -51,15 +51,17 @@ echo "当前操作系统类型为 $OS"
 # 配置Docker镜像加速器 (适用于中国大陆)
 configure_docker_mirror() {
     if [ "$USE_CHINA_MIRROR" = true ]; then
-        echo "配置 Docker 国内镜像加速器..."
+        echo "配置 Docker 国内镜像加速器 (包括 Docker Hub 和 GHCR.io)..."
         sudo mkdir -p /etc/docker
+        # 添加针对 Docker Hub (docker.io) 和 GitHub Registry (ghcr.io) 的镜像
         sudo tee /etc/docker/daemon.json <<-'EOF'
 {
   "registry-mirrors": [
+    "https://ghcr.docker-cn.com",
     "https://registry.docker-cn.com",
     "https://hub-mirror.c.163.com",
     "https://docker.mirrors.ustc.edu.cn",
-    "https://cr.console.aliyun.com"
+    "https://docker.m.daocloud.io"
   ]
 }
 EOF
@@ -127,7 +129,6 @@ install_docker_debian_based() {
     local os_name=$1
     echo "在 $os_name 系统上安装 Docker..."
 
-    # 根据地理位置选择仓库URL
     if [ "$USE_CHINA_MIRROR" = true ]; then
         DOCKER_REPO_URL="https://mirrors.aliyun.com/docker-ce"
         echo "使用阿里云镜像源: $DOCKER_REPO_URL"
@@ -230,14 +231,12 @@ if ! command -v docker &> /dev/null; then
             ;;
     esac
 
-    # 验证Docker安装
     if ! command -v docker &> /dev/null; then
         echo "Docker安装失败"
         exit 1
     fi
     echo "Docker 安装成功。"
 
-    # 启动并启用Docker服务
     if [ "$OS" = "alpine" ]; then
         sudo rc-update add docker boot
         sudo service docker start
@@ -246,30 +245,23 @@ if ! command -v docker &> /dev/null; then
         sudo systemctl enable docker
     fi
 
-    # 配置镜像加速器
     configure_docker_mirror
 
 else
     echo "Docker已安装，跳过安装步骤。"
-    # 对已安装的Docker也应用镜像加速配置
     configure_docker_mirror
 fi
 
-# 设置 docker compose 命令
 setup_docker_compose
 
 # -----------------------------------------------------------------------------
 # 5. 部署 SillyTavern 应用
 # -----------------------------------------------------------------------------
 echo "正在配置 SillyTavern..."
-
-# 创建所需目录
 sudo mkdir -p /data/docker/sillytavem
 
-# 写入docker-compose.yaml文件内容
+# 写入docker-compose.yaml文件内容 (移除了 version 属性)
 cat <<EOF | sudo tee /data/docker/sillytavem/docker-compose.yaml
-version: '3.8'
-
 services:
   sillytavern:
     image: ghcr.io/sillytavern/sillytavern:latest
@@ -287,13 +279,12 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
-  # 添加watchtower服务自动更新容器
   watchtower:
     image: containrrr/watchtower
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 86400 --cleanup --label-enable # 每天检查一次更新
+    command: --interval 86400 --cleanup --label-enable
     restart: always
     networks:
       - DockerNet
@@ -303,7 +294,7 @@ networks:
     name: DockerNet
 EOF
 
-# 提示用户确认是否开启外网访问
+# ... (后续的用户交互部分保持不变) ...
 echo "--------------------------------------------------"
 echo "请选择是否开启外网访问（并设置用户名密码）"
 while true; do
@@ -325,7 +316,6 @@ done
 
 echo "您选择了: $([ "$enable_external_access" = "y" ] && echo "开启" || echo "不开启")外网访问"
 
-# 生成随机字符串的函数
 generate_random_string() {
     tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16
 }
@@ -355,7 +345,6 @@ if [[ $enable_external_access == "y" ]]; then
         esac
     done
 
-    # 创建config目录和配置文件
     sudo mkdir -p /data/docker/sillytavem/config
     cat <<EOF | sudo tee /data/docker/sillytavem/config/config.yaml
 dataRoot: ./data
@@ -452,19 +441,30 @@ else
     echo "未开启外网访问，将使用默认配置。"
 fi
 
-# 启动或重启服务
-echo "正在启动 SillyTavern 服务..."
+# -----------------------------------------------------------------------------
+# 6. 启动或重启服务 (优化流程)
+# -----------------------------------------------------------------------------
 cd /data/docker/sillytavem
 
-# 使用 DOCKER_COMPOSE_CMD 变量来执行命令
+echo "--------------------------------------------------"
+echo "第1步: 正在拉取所需镜像..."
+echo "由于网络原因，此过程可能需要几分钟，请耐心等待。"
+if sudo $DOCKER_COMPOSE_CMD pull; then
+    echo "✅ 镜像拉取成功。"
+else
+    echo "❌ 镜像拉取失败。请检查您的网络连接或镜像加速器配置。"
+    echo "您可以尝试重新运行脚本。"
+    exit 1
+fi
+
+echo "--------------------------------------------------"
+echo "第2步: 正在启动服务..."
 sudo $DOCKER_COMPOSE_CMD up -d
 
-# 检查服务是否成功启动
 if [ $? -eq 0 ]; then
     echo "--------------------------------------------------"
     echo "✅ SillyTavern 已成功部署！"
     echo "--------------------------------------------------"
-    # 获取外网IP
     public_ip=$(curl -sS https://api.ipify.org)
     if [ -z "$public_ip" ]; then
         public_ip="<你的服务器公网IP>"
