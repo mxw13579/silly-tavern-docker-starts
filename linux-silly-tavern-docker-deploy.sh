@@ -2,13 +2,30 @@
 
 # 检查是否具有sudo权限
 if ! command -v sudo &> /dev/null; then
-    echo "需要sudo权限来安装Docker"
+    echo "需要sudo权限来运行此脚本"
     exit 1
 fi
 
-# 主安装流程
+# -----------------------------------------------------------------------------
+# 1. 检测服务器地理位置，判断是否在中国
+# -----------------------------------------------------------------------------
+echo "正在检测服务器位置..."
+# 使用curl请求ipinfo.io并用grep和cut解析，避免需要安装jq
+COUNTRY_CODE=$(curl -sS ipinfo.io | grep '"country":' | cut -d'"' -f4)
+
+USE_CHINA_MIRROR=false
+if [ "$COUNTRY_CODE" = "CN" ]; then
+    echo "检测到服务器位于中国 (CN)，将使用国内镜像源进行加速。"
+    USE_CHINA_MIRROR=true
+else
+    echo "服务器不在中国 (Country: ${COUNTRY_CODE:-"Unknown"})，将使用官方源。"
+fi
+
+
+# -----------------------------------------------------------------------------
+# 2. 检测操作系统类型
+# -----------------------------------------------------------------------------
 echo "检测系统类型..."
-# 检查系统类型
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     OS=$ID
@@ -24,34 +41,61 @@ else
     echo "无法确定操作系统类型"
     exit 1
 fi
+echo "当前操作系统类型为 $OS"
 
+
+# -----------------------------------------------------------------------------
+# 3. 定义安装和配置函数
+# -----------------------------------------------------------------------------
+
+# 配置Docker镜像加速器 (适用于中国大陆)
+configure_docker_mirror() {
+    if [ "$USE_CHINA_MIRROR" = true ]; then
+        echo "配置 Docker 国内镜像加速器..."
+        sudo mkdir -p /etc/docker
+        sudo tee /etc/docker/daemon.json <<-'EOF'
+{
+  "registry-mirrors": [
+    "https://registry.docker-cn.com",
+    "https://hub-mirror.c.163.com",
+    "https://docker.mirrors.ustc.edu.cn",
+    "https://cr.console.aliyun.com"
+  ]
+}
+EOF
+        echo "重启Docker服务以应用镜像加速配置..."
+        sudo systemctl daemon-reload
+        sudo systemctl restart docker
+    fi
+}
 
 # 检查并设置docker compose命令
 setup_docker_compose() {
-    # 首先检查是否有docker compose（新版命令）
     if docker compose version &> /dev/null; then
         echo "检测到 docker compose 命令可用"
         DOCKER_COMPOSE_CMD="docker compose"
         return 0
     fi
 
-    # 检查是否有docker-compose（旧版命令）
     if command -v docker-compose &> /dev/null; then
         echo "检测到 docker-compose 命令可用"
         DOCKER_COMPOSE_CMD="docker-compose"
         return 0
     fi
 
-    # 如果都没有，则需要安装docker-compose
-    echo "未检测到 docker compose，将安装 docker-compose..."
-
+    echo "未检测到 docker compose，将尝试安装 docker-compose..."
     case $OS in
         debian|ubuntu)
             sudo apt-get update
             sudo apt-get install -y docker-compose
             ;;
         centos|rhel|fedora)
-            sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+            if [ "$USE_CHINA_MIRROR" = true ]; then
+                # 使用国内的daocloud下载
+                sudo curl -L "https://get.daocloud.io/docker/compose/releases/download/v2.24.6/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+            else
+                sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+            fi
             sudo chmod +x /usr/local/bin/docker-compose
             ;;
         arch)
@@ -64,105 +108,83 @@ setup_docker_compose() {
             sudo zypper install -y docker-compose
             ;;
         *)
-            echo "不支持的操作系统: $OS"
+            echo "不支持的操作系统: $OS，无法自动安装 docker-compose"
             exit 1
             ;;
     esac
 
-    # 验证安装
     if command -v docker-compose &> /dev/null; then
         echo "docker-compose 安装成功"
         DOCKER_COMPOSE_CMD="docker-compose"
-        return 0
     else
         echo "docker-compose 安装失败"
         exit 1
     fi
 }
 
-# 安装Docker的函数 - Debian系统
-install_docker_debian() {
-    echo "在 Debian 系统上安装 Docker..."
+# 安装Docker的函数 - Debian/Ubuntu系统 (合并版本)
+install_docker_debian_based() {
+    local os_name=$1
+    echo "在 $os_name 系统上安装 Docker..."
 
-    # 移除旧版本
+    # 根据地理位置选择仓库URL
+    if [ "$USE_CHINA_MIRROR" = true ]; then
+        DOCKER_REPO_URL="https://mirrors.aliyun.com/docker-ce"
+        echo "使用阿里云镜像源: $DOCKER_REPO_URL"
+    else
+        DOCKER_REPO_URL="https://download.docker.com"
+        echo "使用Docker官方源: $DOCKER_REPO_URL"
+    fi
+
     sudo apt-get remove docker docker-engine docker.io containerd runc || true
-
-    # 更新并安装依赖
     sudo apt-get update
-    sudo apt-get install -y \
-        apt-transport-https \
-        ca-certificates \
-        curl \
-        gnupg \
-        lsb-release
+    sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
 
-    # 添加Docker官方GPG密钥（Debian专用）
     sudo install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    curl -fsSL "${DOCKER_REPO_URL}/linux/${os_name}/gpg" | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
-    # 设置Debian仓库
     echo \
-        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] ${DOCKER_REPO_URL}/linux/${os_name} \
         $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-    # 安装Docker
     sudo apt-get update
     sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 }
 
-# 安装Docker的函数 - Ubuntu系统
-install_docker_ubuntu() {
-    echo "在 Ubuntu 系统上安装 Docker..."
+# 安装Docker的函数 - CentOS/RHEL/Fedora系统
+install_docker_redhat_based() {
+    echo "在 $OS 系统上安装 Docker..."
 
-    # 移除旧版本
-    sudo apt-get remove docker docker-engine docker.io containerd runc || true
+    if [ "$OS" = "fedora" ]; then
+        PKG_MANAGER="dnf"
+        sudo $PKG_MANAGER remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
+        sudo $PKG_MANAGER -y install dnf-plugins-core
+    else # centos, rhel
+        PKG_MANAGER="yum"
+        sudo $PKG_MANAGER remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
+        sudo $PKG_MANAGER install -y yum-utils
+    fi
 
-    # 更新并安装依赖
-    sudo apt-get update
-    sudo apt-get install -y \
-        apt-transport-https \
-        ca-certificates \
-        curl \
-        gnupg \
-        lsb-release
+    if [ "$USE_CHINA_MIRROR" = true ]; then
+        REPO_URL="http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo"
+        echo "使用阿里云镜像源: $REPO_URL"
+    else
+        REPO_URL="https://download.docker.com/linux/centos/docker-ce.repo"
+        if [ "$OS" = "fedora" ]; then
+            REPO_URL="https://download.docker.com/linux/fedora/docker-ce.repo"
+        fi
+        echo "使用Docker官方源: $REPO_URL"
+    fi
 
-    # 添加Docker官方GPG密钥（Ubuntu专用）
-    sudo install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    sudo chmod a+r /etc/apt/keyrings/docker.gpg
-
-    # 设置Ubuntu仓库
-    echo \
-        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-        $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-    # 安装Docker
-    sudo apt-get update
-    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-}
-
-# 安装Docker的函数 - 基于CentOS/RHEL系统
-install_docker_centos() {
-    echo "在 CentOS/RHEL 系统上安装 Docker..."
-
-    # 移除旧版本
-    sudo yum remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
-
-    # 安装必要的工具
-    sudo yum install -y yum-utils
-
-    # 添加Docker仓库
-    sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-
-    # 安装Docker
-    sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    sudo ${PKG_MANAGER}-config-manager --add-repo $REPO_URL
+    sudo $PKG_MANAGER install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 }
 
 # Arch Linux 安装函数
 install_docker_arch() {
     echo "在 Arch Linux 系统上安装 Docker..."
-    sudo pacman -Sy
+    sudo pacman -Sy --noconfirm
     sudo pacman -S --noconfirm docker docker-compose
 }
 
@@ -181,38 +203,17 @@ install_docker_suse() {
 }
 
 
-# 安装Docker的函数 - 基于Fedora系统
-install_docker_fedora() {
-    echo "在 Fedora 系统上安装 Docker..."
-
-    # 移除旧版本
-    sudo dnf remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
-
-    # 添加Docker仓库
-    sudo dnf -y install dnf-plugins-core
-    sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-
-    # 安装Docker
-    sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-}
-
-# 主安装流程
-echo "当前操作系统类型为 $OS"
-
-# 检查是否已安装Docker
+# -----------------------------------------------------------------------------
+# 4. 主安装流程
+# -----------------------------------------------------------------------------
 if ! command -v docker &> /dev/null; then
+    echo "Docker 未安装，开始安装..."
     case $OS in
-        debian)
-            install_docker_debian
+        debian|ubuntu)
+            install_docker_debian_based $OS
             ;;
-        ubuntu)
-            install_docker_ubuntu
-            ;;
-        centos|rhel)
-            install_docker_centos
-            ;;
-        fedora)
-            install_docker_fedora
+        centos|rhel|fedora)
+            install_docker_redhat_based
             ;;
         arch)
             install_docker_arch
@@ -229,9 +230,14 @@ if ! command -v docker &> /dev/null; then
             ;;
     esac
 
+    # 验证Docker安装
+    if ! command -v docker &> /dev/null; then
+        echo "Docker安装失败"
+        exit 1
+    fi
+    echo "Docker 安装成功。"
 
-    # 启动Docker服务
-    # Alpine 的特殊处理
+    # 启动并启用Docker服务
     if [ "$OS" = "alpine" ]; then
         sudo rc-update add docker boot
         sudo service docker start
@@ -240,24 +246,22 @@ if ! command -v docker &> /dev/null; then
         sudo systemctl enable docker
     fi
 
+    # 配置镜像加速器
+    configure_docker_mirror
 
-
-    # 验证Docker安装
-    if ! docker --version > /dev/null 2>&1; then
-        echo "Docker安装失败"
-        exit 1
-    fi
-
-    # 检查Docker Compose
-    if ! docker-compose --version > /dev/null 2>&1; then
-        echo "警告: Docker Compose 未安装或安装失败"
-    fi
 else
-    echo "Docker已安装，跳过安装步骤"
+    echo "Docker已安装，跳过安装步骤。"
+    # 对已安装的Docker也应用镜像加速配置
+    configure_docker_mirror
 fi
 
 # 设置 docker compose 命令
 setup_docker_compose
+
+# -----------------------------------------------------------------------------
+# 5. 部署 SillyTavern 应用
+# -----------------------------------------------------------------------------
+echo "正在配置 SillyTavern..."
 
 # 创建所需目录
 sudo mkdir -p /data/docker/sillytavem
@@ -299,12 +303,11 @@ networks:
     name: DockerNet
 EOF
 
-
 # 提示用户确认是否开启外网访问
-echo "请选择是否开启外网访问"
+echo "--------------------------------------------------"
+echo "请选择是否开启外网访问（并设置用户名密码）"
 while true; do
-    echo -n "是否开启外网访问？(y/n): "
-    read -r response </dev/tty
+    read -p "是否开启外网访问？(y/n): " -r response </dev/tty
     case $response in
         [Yy]* )
             enable_external_access="y"
@@ -320,7 +323,6 @@ while true; do
     esac
 done
 
-# 确保显示用户的选择
 echo "您选择了: $([ "$enable_external_access" = "y" ] && echo "开启" || echo "不开启")外网访问"
 
 # 生成随机字符串的函数
@@ -328,13 +330,12 @@ generate_random_string() {
     tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16
 }
 
-if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
-    # 让用户选择用户名密码的生成方式
+if [[ $enable_external_access == "y" ]]; then
     echo "请选择用户名密码的生成方式:"
     echo "1. 随机生成"
     echo "2. 手动输入(推荐)"
     while true; do
-        read -r choice </dev/tty
+        read -p "请输入您的选择 (1/2): " -r choice </dev/tty
         case $choice in
             1)
                 username=$(generate_random_string)
@@ -344,14 +345,12 @@ if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
                 break
                 ;;
             2)
-                echo -n "请输入用户名(不可以使用纯数字): "
-                read -r username </dev/tty
-                echo -n "请输入密码(不可以使用纯数字): "
-                read -r password </dev/tty
+                read -p "请输入用户名(不可以使用纯数字): " -r username </dev/tty
+                read -p "请输入密码(不可以使用纯数字): " -r password </dev/tty
                 break
                 ;;
             *)
-                echo "请输入 1 或 2"
+                echo "无效输入，请输入 1 或 2"
                 ;;
         esac
     done
@@ -448,42 +447,35 @@ claude:
 enableServerPlugins: false
 EOF
 
-    echo "已开启外网访问"
-    echo "用户名: $username"
-    echo "密码: $password"
+    echo "已开启外网访问并配置用户名密码。"
 else
     echo "未开启外网访问，将使用默认配置。"
 fi
 
-# 检查服务是否已运行并重启
+# 启动或重启服务
+echo "正在启动 SillyTavern 服务..."
 cd /data/docker/sillytavem
 
-if sudo $DOCKER_COMPOSE_CMD ps | grep -q "Up"; then
-    echo "检测到服务正在运行，正在重启..."
-    sudo docker compose stop
-    sudo docker compose up -d
-    sudo $DOCKER_COMPOSE_CMD stop
-    sudo $DOCKER_COMPOSE_CMD up -d
-else
-    echo "服务未运行，正在启动..."
-    sudo docker compose up -d
-    sudo $DOCKER_COMPOSE_CMD up -d
-fi
+# 使用 DOCKER_COMPOSE_CMD 变量来执行命令
+sudo $DOCKER_COMPOSE_CMD up -d
 
 # 检查服务是否成功启动
 if [ $? -eq 0 ]; then
+    echo "--------------------------------------------------"
+    echo "✅ SillyTavern 已成功部署！"
+    echo "--------------------------------------------------"
     # 获取外网IP
     public_ip=$(curl -sS https://api.ipify.org)
-    echo "SillyTavern 已成功部署"
+    if [ -z "$public_ip" ]; then
+        public_ip="<你的服务器公网IP>"
+    fi
     echo "访问地址: http://${public_ip}:8000"
-    if [[ $enable_external_access == "y" || $enable_external_access == "Y" ]]; then
+    if [[ $enable_external_access == "y" ]]; then
         echo "用户名: ${username}"
         echo "密码: ${password}"
     fi
+    echo "--------------------------------------------------"
 else
-    echo "服务启动失败，请检查日志"
-    sudo docker compose logs
+    echo "❌ 服务启动失败，请检查日志"
     sudo $DOCKER_COMPOSE_CMD logs
 fi
-
-
