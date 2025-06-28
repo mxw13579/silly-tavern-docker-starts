@@ -10,7 +10,7 @@ fi
 # 1. 检测服务器地理位置，判断是否在中国
 # -----------------------------------------------------------------------------
 echo "正在检测服务器位置..."
-COUNTRY_CODE=$(curl -sS --connect-timeout 5 ipinfo.io | grep '"country":' | cut -d'"' -f4)
+COUNTRY_CODE=$(curl -sS --connect-timeout 30 ipinfo.io | grep '"country":' | cut -d'"' -f4)
 
 USE_CHINA_MIRROR=false
 if [ "$COUNTRY_CODE" = "CN" ]; then
