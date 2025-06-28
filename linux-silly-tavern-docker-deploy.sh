@@ -17,7 +17,7 @@ fi
 # -----------------------------------------------------------------------------
 echo "==> 1. 正在检测服务器位置..."
 # 增加重试和超时机制
-COUNTRY_CODE=$(curl -sS --connect-timeout 5 --max-time 10 -w "%{http_code}" ipinfo.io/country | sed 's/200$//') || COUNTRY_CODE=""
+COUNTRY_CODE=$(curl -sS --connect-timeout 30 --max-time 30 -w "%{http_code}" ipinfo.io/country | sed 's/200$//') || COUNTRY_CODE=""
 USE_CHINA_MIRROR=false
 if [ "$COUNTRY_CODE" = "CN" ]; then
     echo "检测到服务器位于中国 (CN)，将全面使用国内镜像源进行加速。"
