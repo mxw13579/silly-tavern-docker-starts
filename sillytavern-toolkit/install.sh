@@ -150,7 +150,7 @@ if [ "$IS_CN" = true ]; then
     msg_info "==> 将通过 cURL 和国内代理下载工具箱文件..."
     install_dependency "curl"
 
-    PROXY_URL="https://ghproxy.com"
+    PROXY_URL="https://ghfast.top"
     BASE_URL="${PROXY_URL}/https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/${BRANCH}/${REPO_PATH}"
     FILES=(
         "st-toolkit.sh"
