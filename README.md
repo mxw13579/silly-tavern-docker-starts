@@ -25,6 +25,9 @@ Silly Tavern 是一个非常有趣的项目，本脚本旨在简化其在 Linux 
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/linux-silly-tavern-docker-deploy.sh | sudo bash
 #国外服务器为
 curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/linux-silly-tavern-docker-deploy.sh | sudo bash
+
+
+ bash -c "$(curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/sillytavern-toolkit/install.sh)"
 ```
 
 该脚本会自动检测你的Linux发行版，并安装所需的Docker环境。
