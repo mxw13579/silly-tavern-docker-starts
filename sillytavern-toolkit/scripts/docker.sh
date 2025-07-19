@@ -1,8 +1,6 @@
 #!/bin/bash
 # Docker 管理模块
 
-source "$(dirname "$0")/common.sh"
-
 install_docker() {
     if command -v docker &> /dev/null; then
         msg_warn "Docker 已安装，无需重复操作。"

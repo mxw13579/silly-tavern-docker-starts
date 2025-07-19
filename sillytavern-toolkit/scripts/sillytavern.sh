@@ -2,8 +2,6 @@
 # SillyTavern 应用管理模块
 
 # 设置工作目录并引入通用脚本
-cd "$(dirname "$0")"
-source ./common.sh
 
 
 # 检查Docker环境是否就绪
