@@ -9,7 +9,7 @@ set -e
 REPO_USER="mxw13579"
 REPO_NAME="silly-tavern-docker-starts"
 # 注意：你的路径中有两个 'sillytavern-toolkit'，这里根据你的URL进行了调整
-REPO_PATH="sillytavern-toolkit/sillytavern-toolkit"
+REPO_PATH="sillytavern-toolkit"
 BRANCH="main"
 # 本地安装目录
 TOOLKIT_DIR="$HOME/sillytavern-toolkit"
