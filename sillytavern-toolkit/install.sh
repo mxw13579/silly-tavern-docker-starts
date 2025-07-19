@@ -7,7 +7,7 @@ set -e
 # --- 脚本常量 ---
 REPO_USER="mxw13579"
 REPO_NAME="silly-tavern-docker-starts"
-REPO_PATH="sillytavern-toolkit/sillytavern-toolkit"
+REPO_PATH="sillytavern-toolkit"
 BRANCH="main"
 TOOLKIT_DIR="$HOME/sillytavern-toolkit"
 
