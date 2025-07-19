@@ -38,13 +38,43 @@ export ST_PATH="/data/docker/sillytavern"
 export ST_COMPOSE_FILE="${ST_PATH}/docker-compose.yaml"
 export ST_CONFIG_FILE="${ST_PATH}/config/config.yaml"
 
+# --- 自动切换软件源 (新增功能) ---
+auto_switch_source() {
+    # 仅在中国区且系统支持时执行
+    if [ "$USE_CHINA_MIRROR" = true ] && [[ "$OS" =~ ^(debian|ubuntu|centos|rhel)$ ]]; then
+        local has_mirror=false
+        # 检查是否已配置了国内镜像
+        if [ "$PKG_MANAGER" = "apt-get" ] && [ -f /etc/apt/sources.list ]; then
+           if grep -qE "aliyun|tencent|huawei|163|tsinghua|ustc" /etc/apt/sources.list; then
+             has_mirror=true
+           fi
+        elif [[ "$PKG_MANAGER" = "yum" || "$PKG_MANAGER" = "dnf" ]] && [ -d /etc/yum.repos.d ]; then
+           if grep -qE "aliyun|tencent|huawei|163|tsinghua|ustc" /etc/yum.repos.d/*.repo 2>/dev/null; then
+             has_mirror=true
+           fi
+        fi
+
+        # 如果没有配置国内镜像，则自动切换
+        if [ "$has_mirror" = false ]; then
+            msg_warn "检测到您在中国但未使用镜像源，将自动为您切换到[阿里云]以提高速度。"
+            msg_warn "此操作仅执行一次。原始源文件将备份。"
+            # BASH_SOURCE[0] 获取当前脚本(common.sh)的路径，从而准确定位sources.sh
+            # 使用 sudo bash -c "..." 确保子脚本也能获取到sudo权限
+            sudo bash "$(dirname "${BASH_SOURCE[0]}")/sources.sh" set aliyun
+            msg_ok "自动切换软件源完成。"
+            echo # 换行以美化输出
+        fi
+    fi
+}
+
+
 # --- 环境检测 (只在common.sh被直接调用或作为其他脚本源时执行一次) ---
 if [[ -z "$ENV_DETECTED" ]]; then
     export ENV_DETECTED=true
 
     # 1. 地理位置检测
     # msg_info "正在检测服务器位置..."
-    COUNTRY_CODE=$(curl -sS --connect-timeout 30 --max-time 30 -w "%{http_code}" ipinfo.io/country | sed 's/200$//') || COUNTRY_CODE=""
+    COUNTRY_CODE=$(curl -s -m 10 --retry 2 https://ipinfo.io/country) || COUNTRY_CODE=""
     export USE_CHINA_MIRROR=false
     if [ "$COUNTRY_CODE" = "CN" ]; then
         # msg_ok "检测到服务器位于中国 (CN)，将优先使用国内镜像源。"
@@ -77,7 +107,10 @@ if [[ -z "$ENV_DETECTED" ]]; then
         *) msg_warn "未知的包管理器 for $OS." ;;
     esac
 
-    # 4. Docker Compose命令检测
+    # 4. 自动切换软件源 (新增调用)
+    auto_switch_source
+
+    # 5. Docker Compose命令检测
     setup_docker_compose_cmd() {
         if docker compose version &> /dev/null; then
             export DOCKER_COMPOSE_CMD="docker compose"
