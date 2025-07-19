@@ -1,6 +1,7 @@
 #!/bin/bash
 # 软件源管理模块
 
+. "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 # --- 内部函数 ---
 backup_sources() {

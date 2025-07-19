@@ -17,9 +17,9 @@ while true; do
     echo
     echo "--- 系统环境状态 (每次进入菜单时刷新) ---"
     # 直接调用并显示状态
-    source ./scripts/sources.sh status
-    source ./scripts/docker.sh status
-    source ./scripts/sillytavern.sh status
+     ./scripts/sources.sh status
+     ./scripts/docker.sh status
+     ./scripts/sillytavern.sh status
     echo "----------------------------------------------------------"
     echo
     echo "--- 主菜单 ---"
@@ -43,7 +43,7 @@ while true; do
                 echo "为您的操作系统切换下载源，可以大幅提升后续安装速度。"
                 echo "如果您在海外，无需操作。如果在中国大陆，推荐选择一个。"
                 echo "---------------------------------------------------"
-                source ./scripts/sources.sh status
+                 ./scripts/sources.sh status
                 echo "---------------------------------------------------"
                 echo "   1. 切换为 [阿里云] 软件源"
                 echo "   2. 切换为 [腾讯云] 软件源"
@@ -53,10 +53,10 @@ while true; do
                 echo "---------------------------------------------------"
                 read -p "请输入选项 [0-4]: " sources_choice
                 case $sources_choice in
-                    1) source ./scripts/sources.sh set aliyun ;;
-                    2) source ./scripts/sources.sh set tencent ;;
-                    3) source ./scripts/sources.sh set huawei ;;
-                    4) source ./scripts/sources.sh restore ;;
+                    1)  ./scripts/sources.sh set aliyun ;;
+                    2)  ./scripts/sources.sh set tencent ;;
+                    3)  ./scripts/sources.sh set huawei ;;
+                    4)  ./scripts/sources.sh restore ;;
                     0) break ;;
                     *) msg_error "无效选项" ;;
                 esac
@@ -70,7 +70,7 @@ while true; do
                 echo "--- Docker 环境管理 ---"
                 echo "Docker是运行SillyTavern的容器技术，必须安装。"
                 echo "---------------------------------------------------"
-                source ./scripts/docker.sh status
+                 ./scripts/docker.sh status
                 echo "---------------------------------------------------"
                 echo "   1. 安装 Docker (若未安装)"
                 echo "   2. 配置 Docker 国内镜像加速器 (在中国大陆必做)"
@@ -80,10 +80,10 @@ while true; do
                 echo "---------------------------------------------------"
                 read -p "请输入选项 [0-4]: " docker_choice
                 case $docker_choice in
-                    1) source ./scripts/docker.sh install ;;
-                    2) source ./scripts/docker.sh config_mirror ;;
-                    3) source ./scripts/docker.sh restart_service ;;
-                    4) source ./scripts/docker.sh list_images ;;
+                    1)  ./scripts/docker.sh install ;;
+                    2)  ./scripts/docker.sh config_mirror ;;
+                    3)  ./scripts/docker.sh restart_service ;;
+                    4)  ./scripts/docker.sh list_images ;;
                     0) break ;;
                     *) msg_error "无效选项" ;;
                 esac
@@ -97,7 +97,7 @@ while true; do
                 echo "--- SillyTavern 应用管理 ---"
                 echo "在这里安装、启动、更新您的SillyTavern酒馆。"
                 echo "---------------------------------------------------"
-                source ./scripts/sillytavern.sh status
+                 ./scripts/sillytavern.sh status
                 echo "---------------------------------------------------"
                 echo "   1. 全新安装 SillyTavern (第一步)"
                 echo "   2. 启动 SillyTavern"
@@ -111,14 +111,14 @@ while true; do
                 echo "---------------------------------------------------"
                 read -p "请输入选项 [0-8]: " st_choice
                 case $st_choice in
-                    1) source ./scripts/sillytavern.sh install ;;
-                    2) source ./scripts/sillytavern.sh start ;;
-                    3) source ./scripts/sillytavern.sh stop ;;
-                    4) source ./scripts/sillytavern.sh restart ;;
-                    5) source ./scripts/sillytavern.sh update ;;
-                    6) source ./scripts/sillytavern.sh logs ;;
-                    7) source ./scripts/sillytavern.sh backup ;;
-                    8) source ./scripts/sillytavern.sh change_password ;;
+                    1) ./scripts/sillytavern.sh install ;;
+                    2) ./scripts/sillytavern.sh start ;;
+                    3) ./scripts/sillytavern.sh stop ;;
+                    4) ./scripts/sillytavern.sh restart ;;
+                    5) ./scripts/sillytavern.sh update ;;
+                    6) ./scripts/sillytavern.sh logs ;;
+                    7) ./scripts/sillytavern.sh backup ;;
+                    8) ./scripts/sillytavern.sh change_password ;;
                     0) break ;;
                     *) msg_error "无效选项" ;;
                 esac

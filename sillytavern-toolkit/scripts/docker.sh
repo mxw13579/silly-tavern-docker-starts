@@ -1,5 +1,6 @@
 #!/bin/bash
 # Docker 管理模块
+. "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 install_docker() {
     if command -v docker &> /dev/null; then
