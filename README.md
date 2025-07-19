@@ -27,7 +27,7 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mxw13579/silly-t
 curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/linux-silly-tavern-docker-deploy.sh | sudo bash
 
 
- bash -c "$(curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/sillytavern-toolkit/install.sh)"
+bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/sillytavern-toolkit/install.sh)"
 ```
 
 该脚本会自动检测你的Linux发行版，并安装所需的Docker环境。
