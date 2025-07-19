@@ -11,11 +11,6 @@ if [ -n "$(which curl)" ] && [ "$(curl -sm5 ipinfo.io/country)" = "CN" ]; then
     auto_set_source=1
 fi
 
-# 2. 或者直接测速
-if curl -m3 http://deb.debian.org/debian/README -s -o /dev/null; then
-    # 此处也可测速，略
-    :
-fi
 
 # 3. 如果慢 或 检测到CN
 if [ "$auto_set_source" = "1" ]; then
