@@ -72,7 +72,7 @@ if [ "$IS_CN" = true ]; then
     if [[ "$choice" =~ ^[Yy]$ ]]; then
         # 临时下载 sources.sh 并执行，执行完即焚
         msg_info "正在执行源切换..."
-        bash <(curl -fsSL https://ghproxy.com/https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/${BRANCH}/${REPO_PATH}/scripts/sources.sh) set aliyun
+        bash <(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/${BRANCH}/${REPO_PATH}/scripts/sources.sh) set aliyun
         msg_ok "软件源切换完成。"
     else
         msg_info "已跳过自动切换软件源。"
