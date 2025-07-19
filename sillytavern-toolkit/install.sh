@@ -101,6 +101,8 @@ if [ "$IS_CN" = true ]; then
     msg_info "正在创建目录: $TOOLKIT_DIR"
     mkdir -p "$TOOLKIT_DIR/scripts"
 
+    msg_info "正在下载目录地址: ${BASE_URL}/${file}"
+
     for file in "${FILES[@]}"; do
         msg_info "  -> 正在下载: $file"
         sudo curl -fsSL "${BASE_URL}/${file}" -o "${TOOLKIT_DIR}/${file}"
