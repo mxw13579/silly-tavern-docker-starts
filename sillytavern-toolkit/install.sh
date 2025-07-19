@@ -82,7 +82,7 @@ if [ "$IS_CN" = true ]; then
     install_dependency "curl"
 
     # 定义文件列表和代理URL
-    PROXY_URL="https://ghproxy.com"
+    PROXY_URL="https://ghfast.top"
     BASE_URL="${PROXY_URL}/https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/${BRANCH}/${REPO_PATH}"
     FILES=(
         "st-toolkit.sh"
