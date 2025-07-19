@@ -67,7 +67,6 @@ generate_full_config_file() {
     msg_info "正在生成完整的 config.yaml 配置文件..."
     sudo mkdir -p "${ST_PATH}/config"
 
-=
     sudo tee "${ST_CONFIG_FILE}" > /dev/null <<EOF
 # 由SillyTavern工具箱生成的完整配置文件
 dataRoot: ./data
@@ -213,6 +212,7 @@ configure_access() {
 # --- 主功能实现 ---
 
 install_st() {
+    setup_docker_compose_cmd
     check_sudo
     if ! check_docker_env; then return 1; fi
     if [ -f "$ST_COMPOSE_FILE" ]; then
