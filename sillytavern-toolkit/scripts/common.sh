@@ -68,6 +68,18 @@ auto_switch_source() {
 }
 
 
+# 5. Docker Compose命令检测
+setup_docker_compose_cmd() {
+    if docker compose version &> /dev/null; then
+        export DOCKER_COMPOSE_CMD="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        export DOCKER_COMPOSE_CMD="docker-compose"
+    else
+        export DOCKER_COMPOSE_CMD="" # 表示未找到
+    fi
+}
+
+
 # --- 环境检测 (只在common.sh被直接调用或作为其他脚本源时执行一次) ---
 if [[ -z "$ENV_DETECTED" ]]; then
     export ENV_DETECTED=true
@@ -110,15 +122,5 @@ if [[ -z "$ENV_DETECTED" ]]; then
     # 4. 自动切换软件源 (新增调用)
     auto_switch_source
 
-    # 5. Docker Compose命令检测
-    setup_docker_compose_cmd() {
-        if docker compose version &> /dev/null; then
-            export DOCKER_COMPOSE_CMD="docker compose"
-        elif command -v docker-compose &> /dev/null; then
-            export DOCKER_COMPOSE_CMD="docker-compose"
-        else
-            export DOCKER_COMPOSE_CMD="" # 表示未找到
-        fi
-    }
     setup_docker_compose_cmd
 fi
