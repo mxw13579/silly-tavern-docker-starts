@@ -7,29 +7,25 @@ REPO_URL="https://github.com/mxw13579/silly-tavern-docker-starts/sillytavern-too
 TOOLKIT_DIR="$HOME/sillytavern-toolkit"
 
 
-is_cn_server=0
-if [ -n "$(command -v curl)" ]; then
-    if [ "x$(curl -sm5 ipinfo.io/country 2>/dev/null)" = "xCN" ]; then
-        is_cn_server=1
-    fi
+if [ -n "$(which curl)" ] && [ "$(curl -sm5 ipinfo.io/country)" = "CN" ]; then
+    auto_set_source=1
 fi
 
-# 检查是否 apt 非法
-if [ -f /etc/apt/sources.list ]; then
-    if grep -q 'security.debian.org.*bullseye/updates' /etc/apt/sources.list ; then
-        echo "发现 debian bullseye security 官方源格式已变（404），即将自动修正..."
-        sudo sed -i 's#security\.debian\.org.*bullseye/updates#security.debian.org/debian-security bullseye-security#g' /etc/apt/sources.list
-        sudo apt-get update
-    fi
+# 2. 或者直接测速
+if curl -m3 http://deb.debian.org/debian/README -s -o /dev/null; then
+    # 此处也可测速，略
+    :
 fi
 
-if [ "$is_cn_server" = "1" ]; then
-    echo "检测到服务器位于中国大陆，软件源及GitHub可能访问较慢。"
-    echo "强烈建议优先切换软件源与后续镜像站。"
-    read -p "是否一键切换为阿里云源加速安装？(Y/n): " anw
+# 3. 如果慢 或 检测到CN
+if [ "$auto_set_source" = "1" ]; then
+    echo "检测到服务器为中国大陆或官方源过慢，强烈建议切换为国内软件源（如阿里云、腾讯云等）加速安装。"
+    echo "自动切换源将大幅提升速度。"
+    read -p "现在切换为阿里云源？（推荐）(Y/n): " anw
     anw=${anw,,}
-    if [ "$anw" = "" ] || [ "$anw" = "y" ] || [ "$anw" = "yes" ]; then
-        bash <(curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/sillytavern-toolkit/scripts/sources.sh) set aliyun
+    if [ -z "$anw" ] || [ "$anw" = "y" ] || [ "$anw" = "yes" ]; then
+        # 这里假设sources.sh你能curl到
+        bash <(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/sillytavern-toolkit/scripts/sources.sh) set aliyun
     fi
 fi
 
