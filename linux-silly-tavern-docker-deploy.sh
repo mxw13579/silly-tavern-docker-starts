@@ -63,7 +63,7 @@ configure_system_mirrors() {
     case $OS in
         debian|ubuntu)
             # 检查是否已经是国内源
-            if grep -q -E "aliyun|tuna|ustc|163" /etc/apt/sources.list; then
+            if grep -q -E "aliyun|tuna|ustc|163|tencent" /etc/apt/sources.list; then
                 echo "检测到 /etc/apt/sources.list 已使用国内镜像，跳过替换。"
                 sudo apt-get update
                 return
@@ -166,10 +166,8 @@ configure_docker_mirror() {
         sudo tee /etc/docker/daemon.json <<-'EOF'
 {
   "registry-mirrors": [
-    "https://hub-mirror.c.163.com",
-    "https://mirror.baidubce.com",
-    "https://registry.docker-cn.com"
-  ]
+      "https://mirror.ccs.tencentyun.com"
+    ]
 }
 EOF
         echo "重启Docker服务以应用镜像加速配置..."
