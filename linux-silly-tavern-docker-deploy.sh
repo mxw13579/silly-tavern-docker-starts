@@ -226,7 +226,8 @@ install_docker_debian_based() {
     echo "在 $os_name 系统上安装 Docker..."
     DOCKER_REPO_URL="https://download.docker.com"
     if [ "$USE_CHINA_MIRROR" = true ]; then
-        DOCKER_REPO_URL="https://mirrors.aliyun.com/docker-ce"
+#        DOCKER_REPO_URL="https://mirrors.aliyun.com/docker-ce"
+        DOCKER_REPO_URL="https://mirrors.cloud.tencent.com/docker-ce"
     fi
     echo "使用Docker安装源: $DOCKER_REPO_URL"
     sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
