@@ -252,8 +252,10 @@ install_docker_redhat_based() {
         REPO_URL="https://download.docker.com/linux/fedora/docker-ce.repo"
     fi
     if [ "$USE_CHINA_MIRROR" = true ]; then
-        REPO_URL="http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo"
-        [ "$OS" = "fedora" ] && REPO_URL="https://mirrors.aliyun.com/docker-ce/linux/fedora/docker-ce.repo"
+#        REPO_URL="http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo"
+#        [ "$OS" = "fedora" ] && REPO_URL="https://mirrors.aliyun.com/docker-ce/linux/fedora/docker-ce.repo"
+              REPO_URL="http://mirrors.cloud.tencent.com/docker-ce/linux/centos/docker-ce.repo"
+        [ "$OS" = "fedora" ] && REPO_URL="https://mirrors.cloud.tencent.com/docker-ce/linux/fedora/docker-ce.repo"
     fi
     echo "使用Docker安装源: $REPO_URL"
     sudo ${PKG_MANAGER}-config-manager --add-repo $REPO_URL
