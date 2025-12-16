@@ -17,6 +17,27 @@ is_pure_number() {
   [[ "${1:-}" =~ ^[0-9]+$ ]]
 }
 
+generate_random_string() {
+  local len="${1:-16}"
+  if ! [[ "${len}" =~ ^[0-9]+$ ]] || ((len < 8)); then
+    len=16
+  fi
+
+  [[ -r /dev/urandom ]] || fatal "/dev/urandom 不可用，无法生成随机字符串。"
+
+  local out="" chunk="" attempts=0
+  while ((${#out} < len)); do
+    chunk="$(head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | tr -d '\n')"
+    out+="${chunk}"
+    ((attempts++))
+    ((attempts < 20)) || fatal "随机字符串生成失败，请检查系统环境。"
+  done
+
+  out="${out:0:len}"
+  is_pure_number "${out}" && out="a${out:1}"
+  printf '%s' "${out}"
+}
+
 # -----------------------------------------------------------------------------
 # 0. sudo / root 检查
 # -----------------------------------------------------------------------------
@@ -100,11 +121,7 @@ apt_has_candidate() {
   command -v apt-cache &>/dev/null || return 0
 
   local candidate=""
-  candidate="$(
-    apt-cache policy "${pkg}" 2>/dev/null \
-      | sed -n 's/^[[:space:]]*Candidate: //p' \
-      | head -n 1
-  )"
+  candidate="$(apt-cache policy "${pkg}" 2>/dev/null | sed -n 's/^[[:space:]]*Candidate: //p' | tail -n 1 || true)"
   [[ -n "${candidate}" && "${candidate}" != "(none)" ]]
 }
 
