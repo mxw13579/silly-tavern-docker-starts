@@ -81,6 +81,119 @@ bash linux-silly-tavern-docker-deploy.sh
 
 ---
 
+## SillyTavern Docker 工具箱
+
+`sillytavern-toolkit` 是面向 Linux 服务器的交互式管理工具箱，适合需要反复维护软件源、Docker 环境和 SillyTavern 容器的场景。
+
+### 安装工具箱
+
+国内服务器推荐使用加速地址：
+
+```bash
+bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/sillytavern-toolkit/install.sh)"
+```
+
+国外服务器推荐使用 GitHub 原始地址：
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/sillytavern-toolkit/install.sh)"
+```
+
+安装器默认将工具箱安装到：
+
+```text
+~/sillytavern-toolkit
+```
+
+如果目录已存在，会先备份为带时间戳的 `.bak_` 目录。
+
+### 启动工具箱
+
+安装完成后默认会自动进入工具箱菜单。后续也可以手动启动：
+
+```bash
+bash ~/sillytavern-toolkit/st-toolkit.sh
+```
+
+### 安装参数
+
+`install.sh` 支持以下参数：
+
+- `--no-launch`：只安装或更新工具箱，不在安装完成后自动启动菜单。
+- `--yes` 或 `-y`：在中国大陆环境使用 `ghfast.top` 代理下载时，自动确认代理下载风险；适合非交互式环境。
+
+示例：
+
+```bash
+bash install.sh --no-launch
+bash install.sh --yes --no-launch
+```
+
+如果直接使用 `bash -c "$(curl ...)"` 方式传参，需要在脚本内容后追加 `--`：
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/sillytavern-toolkit/install.sh)" -- --no-launch
+```
+
+### 菜单能力
+
+工具箱主菜单包含：
+
+- 软件源管理：查看当前软件源状态，切换阿里云、腾讯云、华为云软件源，恢复最近一次备份的软件源。
+- Docker 环境管理：安装或修复 Docker 与 Docker Compose，重启 Docker 服务，查看本机 Docker 镜像。
+- SillyTavern 应用管理：全新安装、启动、停止、重启、更新镜像并重启、查看实时日志、备份数据、修改访问配置、恢复上一次访问配置、运行健康检查、显示部署信息。
+
+工具箱进入主菜单和子菜单时会刷新系统环境、软件源、Docker 与 SillyTavern 状态，可用于快速健康检查。
+
+### Docker 镜像加速器管理
+
+在 `Docker 环境管理 -> Docker 镜像加速器管理` 中可以：
+
+- 查看当前 `/etc/docker/daemon.json` 中的 `registry-mirrors` 配置。
+- 对当前镜像加速器进行测速。
+- 从测速结果中选择或更换 Docker Hub 镜像加速器。
+- 输入自定义 HTTPS 镜像加速器地址。
+- 移除已有 `registry-mirrors` 配置。
+
+修改 Docker 配置前会备份原 `/etc/docker/daemon.json`，修改后需要重启 Docker 服务才会生效。
+
+### 备份、恢复与访问配置
+
+在 `SillyTavern 应用管理` 中可以备份 SillyTavern 部署数据。备份文件默认保存到当前用户家目录，文件名类似：
+
+```text
+~/sillytavern_backup_20260101_120000.tar.gz
+```
+
+访问配置入口用于重新设置：
+
+- 本地访问或外网访问
+- Basic Auth 用户名和密码
+- Watchtower 自动更新
+
+修改访问配置前，工具箱会自动备份当前 `docker-compose.yaml` 和 `config/config.yaml` 到：
+
+```text
+/data/docker/sillytavern/backups/config/
+```
+
+如果修改后访问异常，可以通过 `恢复上一次访问配置` 恢复最近一次访问配置备份，并选择是否立即重启 SillyTavern。
+
+### 健康检查
+
+`SillyTavern 应用管理 -> 运行健康检查` 会执行只读诊断，检查：
+
+- Docker 命令和 Docker daemon
+- Docker Compose 可用性
+- 部署目录、Compose 文件、配置文件
+- SillyTavern 容器状态
+- 端口映射与本机监听信息
+- 最近 50 行 SillyTavern 日志
+
+健康检查不会修改系统配置。
+
+---
+
 ## 安全建议
 
 一键脚本会在服务器上安装 Docker、修改部分系统配置并创建容器。

@@ -215,6 +215,7 @@ install_from_proxy() {
     "st-toolkit.sh"
     "scripts/common.sh"
     "scripts/docker.sh"
+    "scripts/health.sh"
     "scripts/sillytavern.sh"
     "scripts/sources.sh"
   )
@@ -235,14 +236,18 @@ install_from_proxy() {
 
 install_from_git() {
   install_dependency "git"
-  backup_existing_toolkit
 
-  local temp_dir repo_git_url
+  local temp_dir repo_git_url prepared_dir staging_dir target_parent target_name backup_dir
   temp_dir="$(mktemp -d)"
   repo_git_url="https://github.com/${REPO_USER}/${REPO_NAME}.git"
+  prepared_dir=""
+  staging_dir=""
+  backup_dir=""
 
   cleanup() {
-    rm -rf "${temp_dir}"
+    [[ -n "${temp_dir:-}" && -d "${temp_dir}" ]] && rm -rf "${temp_dir}"
+    [[ -n "${staging_dir:-}" && "${staging_dir}" != "${TOOLKIT_DIR}" && -d "${staging_dir}" ]] && rm -rf "${staging_dir}"
+    return 0
   }
   trap cleanup EXIT
 
@@ -250,7 +255,30 @@ install_from_git() {
   git clone --depth 1 "${repo_git_url}" "${temp_dir}"
 
   [[ -d "${temp_dir}/${REPO_PATH}" ]] || fatal "仓库中未找到 ${REPO_PATH}。"
-  mv "${temp_dir}/${REPO_PATH}" "${TOOLKIT_DIR}"
+  prepared_dir="${temp_dir}/${REPO_PATH}"
+  target_parent="$(dirname "${TOOLKIT_DIR}")"
+  target_name="$(basename "${TOOLKIT_DIR}")"
+  staging_dir="$(mktemp -d "${target_parent}/.${target_name}.tmp.XXXXXX")"
+  rmdir "${staging_dir}"
+  mv "${prepared_dir}" "${staging_dir}"
+
+  if [[ -e "${TOOLKIT_DIR}" ]]; then
+    backup_dir="${TOOLKIT_DIR}.bak_$(date +%Y%m%d_%H%M%S)"
+    msg_warn "检测到已存在的工具箱目录，将备份为: ${backup_dir}"
+    mv "${TOOLKIT_DIR}" "${backup_dir}"
+  fi
+
+  if mv "${staging_dir}" "${TOOLKIT_DIR}"; then
+    staging_dir=""
+  else
+    if [[ -n "${backup_dir}" && -e "${backup_dir}" && ! -e "${TOOLKIT_DIR}" ]]; then
+      mv "${backup_dir}" "${TOOLKIT_DIR}"
+    fi
+    fatal "替换工具箱目录失败。"
+  fi
+
+  trap - EXIT
+  cleanup
 }
 
 main() {

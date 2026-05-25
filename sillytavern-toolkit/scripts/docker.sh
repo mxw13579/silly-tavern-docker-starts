@@ -10,6 +10,7 @@ fi
 
 DOCKER_DEFAULT_MIRROR="https://mirror.ccs.tencentyun.com"
 OPSNOTE_MIRROR_URL="https://tools.opsnote.top/registry-mirrors/"
+DOCKER_MIRROR_SPEED_CONCURRENCY="${DOCKER_MIRROR_SPEED_CONCURRENCY:-5}"
 
 install_docker_debian_fallback() {
   msg_warn "尝试使用系统源安装 Docker 作为兜底方案..."
@@ -95,6 +96,29 @@ install_docker_redhat_fallback() {
   fatal "Docker 官方源和系统源安装均失败。"
 }
 
+confirm_enterprise_docker_repo() {
+  case "${OS}" in
+    rhel|ol|oracle)
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  if [[ ! -r /dev/tty ]]; then
+    fatal "当前环境没有可交互 TTY，无法确认添加 Docker repo 文件 /etc/yum.repos.d/docker-ce.repo。请在交互终端运行或手动配置 Docker 源。"
+  fi
+
+  local answer=""
+  msg_warn "检测到企业发行版 ${OS}。继续安装会添加 Docker repo 文件 /etc/yum.repos.d/docker-ce.repo。"
+  read -r -p "是否继续添加 Docker repo 文件？(y/n): " answer </dev/tty
+
+  case "${answer}" in
+    [Yy]*) return 0 ;;
+    *) fatal "已取消添加 Docker repo 文件。" ;;
+  esac
+}
+
 install_docker_redhat() {
   msg_info "安装 Docker..."
   install_base_packages
@@ -110,6 +134,8 @@ install_docker_redhat() {
       [[ "${USE_CHINA_MIRROR}" == "true" ]] && repo_url="https://mirrors.cloud.tencent.com/docker-ce/linux/centos/docker-ce.repo"
       ;;
   esac
+
+  confirm_enterprise_docker_repo
 
   run_quiet "移除旧 Docker 包" "${SUDO[@]}" "${PKG_MANAGER}" remove -y \
     docker docker-client docker-client-latest docker-common docker-latest \
@@ -279,6 +305,56 @@ measure_mirror() {
   fi
 }
 
+measure_mirrors_concurrent() {
+  local concurrency="${DOCKER_MIRROR_SPEED_CONCURRENCY:-5}"
+  [[ "${concurrency}" =~ ^[0-9]+$ ]] || concurrency=5
+  ((concurrency > 0)) || concurrency=5
+
+  local mirrors=("$@")
+  ((${#mirrors[@]} > 0)) || return 0
+
+  local tmp_dir
+  tmp_dir="$(mktemp -d)" || fatal "创建测速临时目录失败。"
+
+  local pids=()
+  local active=0
+  local index=0
+  local mirror pid
+
+  for mirror in "${mirrors[@]}"; do
+    (
+      measure_mirror "${mirror}"
+    ) >"${tmp_dir}/${index}.out" &
+
+    pids+=("$!")
+    active=$((active + 1))
+    index=$((index + 1))
+
+    if ((active >= concurrency)); then
+      for pid in "${pids[@]}"; do
+        wait "${pid}" || true
+      done
+      pids=()
+      active=0
+    fi
+  done
+
+  for pid in "${pids[@]}"; do
+    wait "${pid}" || true
+  done
+
+  local i
+  for ((i = 0; i < ${#mirrors[@]}; i++)); do
+    if [[ -s "${tmp_dir}/${i}.out" ]]; then
+      cat "${tmp_dir}/${i}.out"
+    else
+      printf '9999.999\t000\t%s\n' "${mirrors[$i]}"
+    fi
+  done
+
+  rm -rf "${tmp_dir}"
+}
+
 print_mirror_speed_result() {
   local result="$1"
   local time code mirror
@@ -304,14 +380,19 @@ speed_test_current_mirrors() {
   printf '%-9s %-4s %s\n' "耗时" "HTTP" "地址"
 
   local mirror normalized result
+  local valid_mirrors=()
   for mirror in "${mirrors[@]}"; do
     if normalized="$(normalize_mirror_url "${mirror}")"; then
-      result="$(measure_mirror "${normalized}")"
-      print_mirror_speed_result "${result}"
+      valid_mirrors+=("${normalized}")
     else
       printf '%-8s %-4s %s\n' "无效" "-" "${mirror}"
     fi
   done
+
+  while IFS= read -r result; do
+    [[ -n "${result}" ]] || continue
+    print_mirror_speed_result "${result}"
+  done < <(measure_mirrors_concurrent "${valid_mirrors[@]}")
 }
 
 fetch_opsnote_mirrors() {
@@ -345,9 +426,7 @@ build_mirror_options() {
 
   msg_info "正在测速候选镜像..." >&2
   local results=()
-  for mirror in "${candidates[@]}"; do
-    results+=("$(measure_mirror "${mirror}")")
-  done
+  mapfile -t results < <(measure_mirrors_concurrent "${candidates[@]}")
 
   printf '%s\n' "${results[@]}" | sort -n -k1,1
 }

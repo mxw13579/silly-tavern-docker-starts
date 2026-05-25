@@ -115,10 +115,12 @@ sillytavern_menu() {
     echo "   6. 查看 SillyTavern 实时日志"
     echo "   7. 备份 SillyTavern 数据"
     echo "   8. 修改访问模式/用户名密码/Watchtower"
-    echo "   9. 显示部署信息"
+    echo "   9. 恢复上一次访问配置"
+    echo "  10. 运行健康检查"
+    echo "  11. 显示部署信息"
     echo "   0. 返回主菜单"
     echo "---------------------------------------------------"
-    read -r -p "请输入选项 [0-9]: " choice
+    read -r -p "请输入选项 [0-11]: " choice
 
     case "${choice}" in
       1) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" install ;;
@@ -129,7 +131,9 @@ sillytavern_menu() {
       6) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" logs ;;
       7) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" backup ;;
       8) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" change_access ;;
-      9) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" info ;;
+      9) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" restore_access ;;
+      10) run_action bash "${SCRIPT_DIR}/scripts/health.sh" ;;
+      11) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" info ;;
       0) break ;;
       *) msg_error "无效选项"; pause_to_continue ;;
     esac
