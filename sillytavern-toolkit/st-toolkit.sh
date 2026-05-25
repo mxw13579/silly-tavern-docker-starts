@@ -78,7 +78,7 @@ docker_menu() {
     echo "---------------------------------------------------"
     echo "   1. 安装或修复 Docker 与 Compose"
     echo "   2. 单独检查/安装 Docker Compose"
-    echo "   3. 配置 Docker 国内镜像加速器"
+    echo "   3. Docker 镜像加速器管理"
     echo "   4. 重启 Docker 服务"
     echo "   5. 查看已下载的 Docker 镜像"
     echo "   0. 返回主菜单"
@@ -88,7 +88,7 @@ docker_menu() {
     case "${choice}" in
       1) run_action "${SCRIPT_DIR}/scripts/docker.sh" install ;;
       2) run_action "${SCRIPT_DIR}/scripts/docker.sh" compose ;;
-      3) run_action "${SCRIPT_DIR}/scripts/docker.sh" config_mirror ;;
+      3) bash "${SCRIPT_DIR}/scripts/docker.sh" mirror_menu ;;
       4) run_action "${SCRIPT_DIR}/scripts/docker.sh" restart_service ;;
       5) run_action "${SCRIPT_DIR}/scripts/docker.sh" list_images ;;
       0) break ;;
