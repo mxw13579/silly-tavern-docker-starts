@@ -3,55 +3,6 @@ chcp 65001 >nul
 title SillyTavern Windows 安装脚本
 setlocal EnableExtensions DisableDelayedExpansion
 
-REM -----------------------------------------------------------------------------
-REM 处理计划（伪代码）
-REM -----------------------------------------------------------------------------
-REM 1. 初始化:
-REM    切换到脚本所在目录
-REM    保存 CURRENT_DIR / PROJECT_DIR / 下载 URL
-REM
-REM 2. 权限检查:
-REM    检查管理员权限
-REM    如果没有管理员权限则退出
-REM
-REM 3. 基础工具检查:
-REM    检查 PowerShell 是否存在
-REM    检查系统是否为 x64
-REM
-REM 4. 网络检测:
-REM    使用 PowerShell HTTPS 请求检测公网 IP 和国家
-REM    不使用 ping 判断网络连通性
-REM
-REM 5. Git 安装:
-REM    如果 git 已存在，读取版本
-REM    如果不存在:
-REM      优先使用 winget 安装 Git.Git
-REM      winget 失败后下载安装包静默安装
-REM      安装后刷新 PATH
-REM      再次验证 git
-REM
-REM 6. Node.js / npm 安装:
-REM    如果 node/npm 已存在，读取版本
-REM    如果不存在:
-REM      优先使用 winget 安装 OpenJS.NodeJS.LTS
-REM      winget 失败后下载 MSI 静默安装
-REM      安装后刷新 PATH
-REM      再次验证 node/npm
-REM
-REM 7. 项目处理:
-REM    如果 SillyTavern 不存在:
-REM      git clone
-REM    如果存在且是 Git 仓库:
-REM      询问是否 git pull --ff-only
-REM    如果存在但不是 Git 仓库:
-REM      停止，避免覆盖用户目录
-REM
-REM 8. 启动:
-REM    检查 start.bat
-REM    新开 CMD 窗口启动 start.bat
-REM
-REM -----------------------------------------------------------------------------
-
 set "CURRENT_DIR=%~dp0"
 cd /d "%CURRENT_DIR%"
 set "CURRENT_DIR=%cd%"
