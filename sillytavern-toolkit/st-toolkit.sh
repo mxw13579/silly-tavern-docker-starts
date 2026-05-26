@@ -8,7 +8,7 @@ cd "${SCRIPT_DIR}"
 ST_TOOLKIT_REQUIRE_SUDO=0
 ST_TOOLKIT_SKIP_COUNTRY=1
 
-# shellcheck source=scripts/common.sh
+# shellcheck source=sillytavern-toolkit/scripts/common.sh
 . "${SCRIPT_DIR}/scripts/common.sh"
 set +e
 
@@ -81,9 +81,10 @@ docker_menu() {
     echo "   3. Docker 镜像加速器管理"
     echo "   4. 重启 Docker 服务"
     echo "   5. 查看已下载的 Docker 镜像"
+    echo "   6. 恢复最近一次 daemon.json 备份"
     echo "   0. 返回主菜单"
     echo "---------------------------------------------------"
-    read -r -p "请输入选项 [0-5]: " choice
+    read -r -p "请输入选项 [0-6]: " choice
 
     case "${choice}" in
       1) run_action "${SCRIPT_DIR}/scripts/docker.sh" install ;;
@@ -91,6 +92,7 @@ docker_menu() {
       3) bash "${SCRIPT_DIR}/scripts/docker.sh" mirror_menu ;;
       4) run_action "${SCRIPT_DIR}/scripts/docker.sh" restart_service ;;
       5) run_action "${SCRIPT_DIR}/scripts/docker.sh" list_images ;;
+      6) run_action "${SCRIPT_DIR}/scripts/docker.sh" restore_daemon ;;
       0) break ;;
       *) msg_error "无效选项"; pause_to_continue ;;
     esac
