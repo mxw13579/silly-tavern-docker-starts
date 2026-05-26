@@ -4,6 +4,20 @@ DOCKER_DEFAULT_MIRROR="https://mirror.ccs.tencentyun.com"
 DOCKER_HUB_NATIVE_REGISTRY="https://registry-1.docker.io"
 OPSNOTE_MIRROR_URL="https://tools.opsnote.top/registry-mirrors/"
 DOCKER_MIRROR_SPEED_CONCURRENCY="${DOCKER_MIRROR_SPEED_CONCURRENCY:-5}"
+DOCKER_MIRROR_MENU_SEP="----------------------------------------------------------"
+
+print_docker_mirror_menu_header() {
+  local title="${1:-Docker 镜像加速器管理}"
+  local description="${2:-候选源来自固定推荐项和 OpsNote 监控页，写入前会要求确认。}"
+
+  clear || true
+  echo "${DOCKER_MIRROR_MENU_SEP}"
+  echo "SillyTavern Docker 工具箱 | FuFu API | 群 1019836466"
+  echo "${DOCKER_MIRROR_MENU_SEP}"
+  echo "${title}"
+  echo "${description}"
+  echo "${DOCKER_MIRROR_MENU_SEP}"
+}
 
 normalize_mirror_url() {
   local url="${1:-}"
@@ -675,8 +689,7 @@ select_docker_mirror_interactive() {
     fi
   done
 
-  echo
-  echo "请选择 Docker Hub 镜像加速器："
+  print_docker_mirror_menu_header "选择 Docker Hub 镜像加速器" "按本次测速结果排序；写入前会再次确认。"
   print_mirror_http_hint
   if ((${#menu_mirrors[@]} == 0)); then
     msg_warn "本次未发现测速成功的候选镜像，可选择自定义输入。"
@@ -782,18 +795,15 @@ docker_mirror_menu() {
 
   local choice=""
   while true; do
-    clear || true
-    echo "--- Docker 镜像加速器管理 ---"
-    echo "候选源来自固定推荐项和 OpsNote 监控页，写入前会要求确认。"
-    echo "---------------------------------------------------"
+    print_docker_mirror_menu_header
     show_docker_mirror_config
-    echo "---------------------------------------------------"
+    echo "${DOCKER_MIRROR_MENU_SEP}"
     echo "   1. 查看当前配置"
     echo "   2. 测速当前配置"
     echo "   3. 选择/更换镜像加速器"
     echo "   4. 移除镜像加速器"
     echo "   0. 返回"
-    echo "---------------------------------------------------"
+    echo "${DOCKER_MIRROR_MENU_SEP}"
     read -r -p "请输入选项 [0-4]: " choice </dev/tty
 
     case "${choice}" in

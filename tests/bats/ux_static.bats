@@ -71,6 +71,19 @@ load "../helpers/stubs.bash"
   assert_status_eq 0
 }
 
+@test "docker mirror submenu keeps compact brand header" {
+  run bash -c '
+    set -euo pipefail
+    f="sillytavern-toolkit/scripts/docker/mirror.sh"
+    grep -F "print_docker_mirror_menu_header()" "${f}" >/dev/null
+    grep -F "SillyTavern Docker 工具箱 | FuFu API | 群 1019836466" "${f}" >/dev/null
+    grep -F "DOCKER_MIRROR_MENU_SEP" "${f}" >/dev/null
+    grep -F "print_docker_mirror_menu_header \"选择 Docker Hub 镜像加速器\"" "${f}" >/dev/null
+  '
+
+  assert_status_eq 0
+}
+
 @test "source mirror changes pause so users can read the result" {
   run bash -c '
     set -euo pipefail
