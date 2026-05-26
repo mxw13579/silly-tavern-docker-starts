@@ -365,7 +365,9 @@ backup_apt_sources_full_for_repair() {
 
   "${SUDO[@]}" mkdir -p "${backup_dir}"
 
-  [[ -f /etc/apt/sources.list ]] && "${SUDO[@]}" cp -a /etc/apt/sources.list "${backup_dir}/sources.list" || true
+  if [[ -f /etc/apt/sources.list ]]; then
+    "${SUDO[@]}" cp -a /etc/apt/sources.list "${backup_dir}/sources.list" || true
+  fi
 
   if [[ -d /etc/apt/sources.list.d ]]; then
     "${SUDO[@]}" mkdir -p "${backup_dir}/sources.list.d"
