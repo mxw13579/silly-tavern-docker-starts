@@ -15,9 +15,32 @@ set +e
 STATUS_CACHE=""
 STATUS_CACHE_SECONDS=0
 STATUS_CACHE_TTL=15
+MENU_SEP="----------------------------------------------------------"
+
+print_sep() {
+  echo "${MENU_SEP}"
+}
+
+print_brand_header() {
+  echo "SillyTavern Docker 工具箱 | FuFu API | 群 1019836466"
+}
+
+print_menu_header() {
+  local title="$1"
+  local description="$2"
+
+  clear || true
+  print_brand_header
+  echo "${title}"
+  echo "${description}"
+  print_sep
+}
 
 render_status_header() {
+  echo "[系统]"
   toolkit_status_header
+  echo
+  echo "[组件]"
   "${SCRIPT_DIR}/scripts/sources.sh" status </dev/null
   "${SCRIPT_DIR}/scripts/docker.sh" status </dev/null
   "${SCRIPT_DIR}/scripts/sillytavern.sh" status </dev/null
@@ -38,17 +61,13 @@ show_header() {
   local cache_age=$((SECONDS - STATUS_CACHE_SECONDS))
 
   clear || true
-  echo "=========================================================="
-  echo "======          SillyTavern Docker 工具箱           ======"
-  echo "======          FuFu API (群1019836466) 提供         ======"
-  echo "=========================================================="
-  echo
-  echo "--- 系统环境状态 ---"
+  print_brand_header
+  print_sep
   if [[ -z "${STATUS_CACHE}" || "${force_refresh}" == "1" || ${cache_age} -ge ${STATUS_CACHE_TTL} ]]; then
     refresh_status_cache
   fi
   printf '%s\n' "${STATUS_CACHE}"
-  echo "----------------------------------------------------------"
+  print_sep
   echo
 }
 
@@ -86,20 +105,20 @@ handle_empty_choice() {
 read_menu_choice() {
   local result_var="$1"
   local prompt="$2"
-  local choice=""
+  local input=""
 
-  if ! read -r -p "${prompt}" choice; then
+  if ! read -r -p "${prompt}" input; then
     echo
     return 1
   fi
 
-  choice="${choice%$'\r'}"
-  if [[ -z "${choice}" ]]; then
+  input="${input%$'\r'}"
+  if [[ -z "${input}" ]]; then
     handle_empty_choice
     return 2
   fi
 
-  printf -v "${result_var}" '%s' "${choice}"
+  printf -v "${result_var}" '%s' "${input}"
   return 0
 }
 
@@ -108,18 +127,15 @@ sources_menu() {
   local read_code=0
 
   while true; do
-    clear || true
-    echo "--- 软件源管理 ---"
-    echo "Debian/Ubuntu/Arch/Alpine 支持自动切换；RedHat/SUSE 为避免破坏企业源，仅显示状态。"
-    echo "---------------------------------------------------"
+    print_menu_header "软件源管理" "Debian/Ubuntu/Arch/Alpine 支持自动切换；RedHat/SUSE 仅显示状态。"
     "${SCRIPT_DIR}/scripts/sources.sh" status
-    echo "---------------------------------------------------"
+    print_sep
     echo "   1. 切换为 [阿里云] 软件源"
     echo "   2. 切换为 [腾讯云] 软件源"
     echo "   3. 切换为 [华为云] 软件源"
     echo "   4. 恢复最近一次备份的软件源"
     echo "   0. 返回主菜单"
-    echo "---------------------------------------------------"
+    print_sep
     read_menu_choice choice "请输入选项 [0-4]: "
     read_code=$?
     if ((read_code != 0)); then
@@ -146,12 +162,9 @@ docker_menu() {
   local read_code=0
 
   while true; do
-    clear || true
-    echo "--- Docker 环境管理 ---"
-    echo "安装逻辑已同步新版部署脚本，支持 Debian/Ubuntu/RedHat/Arch/Alpine/SUSE。"
-    echo "---------------------------------------------------"
+    print_menu_header "Docker 环境管理" "安装和修复 Docker、Compose、镜像加速器与服务状态。"
     "${SCRIPT_DIR}/scripts/docker.sh" status
-    echo "---------------------------------------------------"
+    print_sep
     echo "   1. 安装或修复 Docker 与 Compose"
     echo "   2. 单独检查/安装 Docker Compose"
     echo "   3. Docker 镜像加速器管理"
@@ -159,7 +172,7 @@ docker_menu() {
     echo "   5. 查看已下载的 Docker 镜像"
     echo "   6. 恢复最近一次 daemon.json 备份"
     echo "   0. 返回主菜单"
-    echo "---------------------------------------------------"
+    print_sep
     read_menu_choice choice "请输入选项 [0-6]: "
     read_code=$?
     if ((read_code != 0)); then
@@ -188,12 +201,9 @@ sillytavern_menu() {
   local read_code=0
 
   while true; do
-    clear || true
-    echo "--- SillyTavern 应用管理 ---"
-    echo "全新安装会询问本地/外网访问、Basic Auth 和 Watchtower 风险选项。"
-    echo "---------------------------------------------------"
+    print_menu_header "SillyTavern 应用管理" "管理安装、启停、更新、备份、访问配置和部署信息。"
     "${SCRIPT_DIR}/scripts/sillytavern.sh" status
-    echo "---------------------------------------------------"
+    print_sep
     echo "   1. 全新安装 SillyTavern"
     echo "   2. 启动 SillyTavern"
     echo "   3. 停止 SillyTavern"
@@ -206,7 +216,7 @@ sillytavern_menu() {
     echo "  10. 运行健康检查"
     echo "  11. 显示部署信息"
     echo "   0. 返回主菜单"
-    echo "---------------------------------------------------"
+    print_sep
     read_menu_choice choice "请输入选项 [0-11]: "
     read_code=$?
     if ((read_code != 0)); then
@@ -243,15 +253,16 @@ main() {
   while true; do
     show_header "${refresh_status}"
     refresh_status=0
-    echo "--- 主菜单 ---"
-    echo "   推荐新手按 1 -> 2 -> 3 的顺序操作"
+    echo "建议流程: 1 软件源 -> 2 Docker -> 3 SillyTavern"
+    print_sep
     echo
+    echo "菜单说明"
     echo "   1. 软件源管理"
     echo "   2. Docker 环境管理"
     echo "   3. SillyTavern 应用管理"
     echo
     echo "   0. 退出脚本"
-    echo "----------------------------------------------------------"
+    print_sep
     read_menu_choice choice "请输入选项 [0-3]: "
     read_code=$?
     if ((read_code != 0)); then

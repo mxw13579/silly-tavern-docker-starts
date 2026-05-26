@@ -46,6 +46,57 @@ load "../helpers/stubs.bash"
   assert_status_eq 0
 }
 
+@test "toolkit menu uses shared brand and separator helpers" {
+  run bash -c '
+    set -euo pipefail
+    f="sillytavern-toolkit/st-toolkit.sh"
+    grep -Eq "^(function[[:space:]]+)?(print|render|show)_(brand|toolkit)_(header|banner)[[:space:]]*(\\(\\))?[[:space:]]*\\{" "${f}" >/dev/null
+    grep -Eq "^(function[[:space:]]+)?print_sep[[:space:]]*(\\(\\))?[[:space:]]*\\{" "${f}" >/dev/null
+    grep -F "SillyTavern Docker 工具箱 | FuFu API | 群 1019836466" "${f}" >/dev/null
+  '
+
+  assert_status_eq 0
+}
+
+@test "toolkit home menu groups system component and suggested workflow copy" {
+  run bash -c '
+    set -euo pipefail
+    f="sillytavern-toolkit/st-toolkit.sh"
+    grep -F "[系统]" "${f}" >/dev/null
+    grep -F "[组件]" "${f}" >/dev/null
+    grep -Eq "建议流程|推荐流程|下一步建议|建议操作" "${f}" >/dev/null
+  '
+
+  assert_status_eq 0
+}
+
+@test "toolkit submenus use shared title and description rendering" {
+  run bash -c '
+    set -euo pipefail
+    f="sillytavern-toolkit/st-toolkit.sh"
+    if ! grep -Eq "^(function[[:space:]]+)?(print|render|show)_((sub)?menu_)?(header|title|intro|description|desc)[[:space:]]*(\\(\\))?[[:space:]]*\\{" "${f}" &&
+       ! grep -Eq "(print|render|show)_((sub)?menu_)?(header|title|intro|description|desc)[[:space:]]+\"[^\"]+\"([[:space:]]+\"[^\"]+\")?" "${f}"; then
+      exit 1
+    fi
+  '
+
+  assert_status_eq 0
+}
+
+@test "toolkit read_menu_choice writes selected value to caller variable" {
+  run bash -c '
+    set -euo pipefail
+    fn="$(sed -n "/^handle_empty_choice()/,/^sources_menu()/p" "sillytavern-toolkit/st-toolkit.sh" | sed '$d')"
+    eval "${fn}"
+    msg_warn() { printf "%s\n" "$*"; }
+    selected=""
+    read_menu_choice selected "prompt: " <<< $'"'"'1\r\n'"'"'
+    [[ "${selected}" == "1" ]]
+  '
+
+  assert_status_eq 0
+}
+
 @test "logging and health output include progress context and a final summary" {
   run bash -c '
     set -euo pipefail
