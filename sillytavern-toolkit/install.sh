@@ -7,9 +7,11 @@ REPO_USER="mxw13579"
 REPO_NAME="silly-tavern-docker-starts"
 REPO_PATH="sillytavern-toolkit"
 BRANCH="main"
+TOOLKIT_REF="${ST_TOOLKIT_REF:-${BRANCH}}"
 TOOLKIT_DIR="${TOOLKIT_DIR:-${HOME}/sillytavern-toolkit}"
 LAUNCH_TOOLKIT=true
 ASSUME_YES=false
+CHECKSUMS_URL="${ST_TOOLKIT_CHECKSUMS_URL:-}"
 
 C_RESET='\033[0m'
 C_RED='\033[0;31m'
@@ -34,11 +36,24 @@ parse_args() {
       --no-launch)
         LAUNCH_TOOLKIT=false
         ;;
+      --ref)
+        shift
+        [[ -n "${1:-}" ]] || fatal "--ref 需要一个分支、标签或 commit。"
+        TOOLKIT_REF="$1"
+        ;;
       -y|--yes)
         ASSUME_YES=true
         ;;
       -h|--help)
-        echo "用法: $0 [--no-launch] [--yes]"
+        cat <<EOF
+用法: $0 [--no-launch] [--yes] [--ref <ref>]
+
+环境变量:
+  ST_TOOLKIT_REF=<ref>              指定下载分支、标签或 commit
+  ST_TOOLKIT_YES=1                  非交互接受代理下载风险
+  ST_TOOLKIT_NO_LAUNCH=1            安装后不自动启动菜单
+  ST_TOOLKIT_CHECKSUMS_URL=<url>    可选 checksum manifest URL
+EOF
         exit 0
         ;;
       *)
@@ -47,6 +62,67 @@ parse_args() {
     esac
     shift
   done
+}
+
+truthy_env() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|y|Y|on|ON) return 0 ;;
+    0|false|FALSE|no|NO|n|N|off|OFF|"") return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+is_full_commit_ref() {
+  [[ "${TOOLKIT_REF}" =~ ^[0-9A-Fa-f]{40}$ ]]
+}
+
+init_env_options() {
+  local rc
+
+  if truthy_env "${ST_TOOLKIT_YES:-}"; then
+    ASSUME_YES=true
+  else
+    rc=$?
+    case "${rc}" in
+      1) ;;
+      2) fatal "ST_TOOLKIT_YES 只能为 1/0、true/false、yes/no、on/off。" ;;
+    esac
+  fi
+
+  if truthy_env "${ST_TOOLKIT_NO_LAUNCH:-}"; then
+    LAUNCH_TOOLKIT=false
+  else
+    rc=$?
+    case "${rc}" in
+      1) ;;
+      2) fatal "ST_TOOLKIT_NO_LAUNCH 只能为 1/0、true/false、yes/no、on/off。" ;;
+    esac
+  fi
+}
+
+validate_ref() {
+  [[ -n "${TOOLKIT_REF}" ]] || fatal "TOOLKIT_REF 不能为空。"
+  ((${#TOOLKIT_REF} <= 128)) || fatal "TOOLKIT_REF 长度不能超过 128。"
+
+  [[ "${TOOLKIT_REF}" =~ ^[A-Za-z0-9._/-]+$ ]] || fatal "TOOLKIT_REF 只能包含 A-Z、a-z、0-9、.、_、-、/。"
+
+  case "${TOOLKIT_REF}" in
+    -*|/*|*..*|*//*|*"?*"|*"#"*|*"@{"*|*.lock|./*|*/.*)
+      fatal "TOOLKIT_REF 格式不安全: ${TOOLKIT_REF}"
+      ;;
+  esac
+
+  if is_full_commit_ref; then
+    return 0
+  fi
+
+  if command -v git &>/dev/null; then
+    git check-ref-format --allow-onelevel "${TOOLKIT_REF}" &>/dev/null || fatal "TOOLKIT_REF 不是合法的 git ref: ${TOOLKIT_REF}"
+  fi
+}
+
+validate_checksums_url() {
+  [[ -z "${CHECKSUMS_URL}" || "${CHECKSUMS_URL}" =~ ^https:// ]] || fatal "ST_TOOLKIT_CHECKSUMS_URL 必须使用 HTTPS。"
 }
 
 init_sudo() {
@@ -184,8 +260,8 @@ confirm_proxy_download() {
   msg_warn "中国区安装将通过第三方代理 ghfast.top 下载脚本文件。"
   msg_warn "该方式可改善 GitHub 访问，但存在代理服务可用性和供应链信任风险。"
 
-  if [[ ! -r /dev/tty ]]; then
-    fatal "当前环境非交互。请改用 GitHub 直连，或显式传入 --yes 接受代理下载风险。"
+  if [[ ! -t 0 || ! -t 1 || ! -r /dev/tty ]]; then
+    fatal "当前环境非交互。请传入 --yes 或设置 ST_TOOLKIT_YES=1 接受代理下载风险。"
   fi
 
   local answer=""
@@ -196,93 +272,184 @@ confirm_proxy_download() {
   esac
 }
 
-install_from_proxy() {
-  install_dependency "curl"
-  confirm_proxy_download
+verify_checksums_manifest() {
+  local root_dir="$1"
+  local manifest_file="$2"
+  shift 2
+  local expected_files=("$@")
 
-  local proxy_url base_url temp_dir
-  proxy_url="https://ghfast.top"
-  base_url="${proxy_url}/https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/${BRANCH}/${REPO_PATH}"
-  temp_dir="$(mktemp -d)"
+  [[ -n "${CHECKSUMS_URL}" ]] || return 0
+  command -v sha256sum &>/dev/null || fatal "启用 checksum 校验需要 sha256sum。"
 
-  cleanup_proxy_tmp() {
-    rm -rf "${temp_dir}"
-  }
-  trap cleanup_proxy_tmp RETURN
+  msg_warn "checksum 仅校验下载后的工具箱文件，不保护当前已执行的 bootstrap installer。"
 
-  local files=(
-    "install.sh"
-    "st-toolkit.sh"
-    "scripts/common.sh"
-    "scripts/docker.sh"
-    "scripts/health.sh"
-    "scripts/sillytavern.sh"
-    "scripts/sources.sh"
-  )
-
-  mkdir -p "${temp_dir}/scripts"
-
-  local file
-  for file in "${files[@]}"; do
-    msg_info "下载: ${file}"
-    curl -fsSL --connect-timeout 10 --max-time 180 --retry 3 --retry-delay 1 \
-      "${base_url}/${file}" -o "${temp_dir}/${file}"
+  local line hash path actual found
+  for line in "${expected_files[@]}"; do
+    found=false
+    while read -r hash path _ || [[ -n "${hash:-}${path:-}" ]]; do
+      [[ -n "${hash:-}" ]] || continue
+      [[ "${hash}" == \#* ]] && continue
+      [[ "${hash}" =~ ^[0-9A-Fa-f]{64}$ ]] || fatal "checksum manifest hash 格式错误: ${hash}"
+      [[ -n "${path:-}" ]] || fatal "checksum manifest 格式错误。"
+      path="${path#\*}"
+      [[ "${path}" != /* && "${path}" != *".."* ]] || fatal "checksum manifest 包含不安全路径: ${path}"
+      if [[ "${path}" == "${line}" ]]; then
+        found=true
+        [[ -f "${root_dir}/${path}" ]] || fatal "checksum 目标文件不存在: ${path}"
+        actual="$(sha256sum "${root_dir}/${path}" | awk '{print $1}')"
+        [[ "${actual}" == "${hash}" ]] || fatal "checksum 不匹配: ${path}"
+      fi
+    done <"${manifest_file}"
+    [[ "${found}" == "true" ]] || fatal "checksum manifest 缺失条目: ${line}"
   done
 
-  backup_existing_toolkit
-  mv "${temp_dir}" "${TOOLKIT_DIR}"
-  trap - RETURN
+  msg_ok "工具箱文件 checksum 校验通过。"
+}
+
+atomic_replace_dir() {
+  local src_dir="$1"
+  local dst_dir="$2"
+  local target_parent target_name staging_dir backup_dir ts n
+
+  target_parent="$(dirname "${dst_dir}")"
+  target_name="$(basename "${dst_dir}")"
+  if ! mkdir -p "${target_parent}"; then
+    fatal "创建工具箱目录父目录失败: ${target_parent}"
+  fi
+  staging_dir="$(mktemp -d "${target_parent}/.${target_name}.tmp.XXXXXX")"
+  rmdir "${staging_dir}"
+
+  if ! mv "${src_dir}" "${staging_dir}"; then
+    rm -rf "${staging_dir}" 2>/dev/null || true
+    fatal "准备工具箱临时目录失败。"
+  fi
+
+  if [[ -e "${dst_dir}" ]]; then
+    ts="$(date +%Y%m%d_%H%M%S)"
+    backup_dir="${dst_dir}.bak_${ts}"
+    n=0
+    while [[ -e "${backup_dir}" ]]; do
+      n=$((n + 1))
+      backup_dir="${dst_dir}.bak_${ts}.${n}"
+    done
+    msg_warn "检测到已存在的工具箱目录，将备份为: ${backup_dir}"
+    if ! mv "${dst_dir}" "${backup_dir}"; then
+      rm -rf "${staging_dir}" 2>/dev/null || true
+      fatal "备份现有工具箱目录失败。"
+    fi
+  fi
+
+  if mv "${staging_dir}" "${dst_dir}"; then
+    return 0
+  fi
+
+  rm -rf "${staging_dir}" 2>/dev/null || true
+  if [[ -n "${backup_dir:-}" && -e "${backup_dir}" && ! -e "${dst_dir}" ]]; then
+    mv "${backup_dir}" "${dst_dir}" || true
+  fi
+  fatal "替换工具箱目录失败。"
+}
+
+install_from_proxy() {
+  (
+    install_dependency "curl"
+    confirm_proxy_download
+
+    local proxy_url base_url temp_dir manifest_file
+    proxy_url="https://ghfast.top"
+    base_url="${proxy_url}/https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/${TOOLKIT_REF}/${REPO_PATH}"
+    temp_dir="$(mktemp -d)"
+    manifest_file=""
+
+    cleanup_proxy_tmp() {
+      rm -rf "${temp_dir}" 2>/dev/null || true
+    }
+    trap cleanup_proxy_tmp EXIT
+
+    local files=(
+      "install.sh"
+      "st-toolkit.sh"
+      "scripts/common.sh"
+      "scripts/docker.sh"
+      "scripts/health.sh"
+      "scripts/sillytavern.sh"
+      "scripts/sources.sh"
+      "scripts/lib/logging.sh"
+      "scripts/lib/input.sh"
+      "scripts/lib/network.sh"
+      "scripts/lib/os.sh"
+      "scripts/lib/apt.sh"
+      "scripts/lib/packages.sh"
+      "scripts/lib/compose.sh"
+      "scripts/docker/install.sh"
+      "scripts/docker/mirror.sh"
+      "scripts/docker/compose.sh"
+      "scripts/docker/status.sh"
+      "scripts/sillytavern/config.sh"
+      "scripts/sillytavern/compose.sh"
+      "scripts/sillytavern/access.sh"
+      "scripts/sillytavern/lifecycle.sh"
+      "scripts/sillytavern/status.sh"
+    )
+
+    local file parent_dir
+    for file in "${files[@]}"; do
+      parent_dir="$(dirname "${file}")"
+      [[ "${parent_dir}" == "." ]] || mkdir -p "${temp_dir}/${parent_dir}"
+      msg_info "下载: ${file}"
+      curl -fsSL --connect-timeout 10 --max-time 180 --retry 3 --retry-delay 1 \
+        "${base_url}/${file}" -o "${temp_dir}/${file}"
+    done
+
+    if [[ -n "${CHECKSUMS_URL}" ]]; then
+      manifest_file="${temp_dir}/.checksums.sha256"
+      curl -fsSL --proto '=https' --proto-redir '=https' \
+        --connect-timeout 10 --max-time 60 --retry 3 --retry-delay 1 \
+        "${CHECKSUMS_URL}" -o "${manifest_file}"
+      verify_checksums_manifest "${temp_dir}" "${manifest_file}" "${files[@]}"
+    fi
+
+    atomic_replace_dir "${temp_dir}" "${TOOLKIT_DIR}"
+    temp_dir=""
+  )
 }
 
 install_from_git() {
-  install_dependency "git"
+  (
+    install_dependency "git"
 
-  local temp_dir repo_git_url prepared_dir staging_dir target_parent target_name backup_dir
-  temp_dir="$(mktemp -d)"
-  repo_git_url="https://github.com/${REPO_USER}/${REPO_NAME}.git"
-  prepared_dir=""
-  staging_dir=""
-  backup_dir=""
+    local temp_dir repo_git_url prepared_dir
+    temp_dir="$(mktemp -d)"
+    repo_git_url="https://github.com/${REPO_USER}/${REPO_NAME}.git"
+    prepared_dir=""
 
-  cleanup() {
-    [[ -n "${temp_dir:-}" && -d "${temp_dir}" ]] && rm -rf "${temp_dir}"
-    [[ -n "${staging_dir:-}" && "${staging_dir}" != "${TOOLKIT_DIR}" && -d "${staging_dir}" ]] && rm -rf "${staging_dir}"
-    return 0
-  }
-  trap cleanup EXIT
+    cleanup_git_tmp() {
+      [[ -n "${temp_dir:-}" && -d "${temp_dir}" ]] && rm -rf "${temp_dir}"
+    }
+    trap cleanup_git_tmp EXIT
 
-  msg_info "正在从 GitHub 克隆仓库..."
-  git clone --depth 1 "${repo_git_url}" "${temp_dir}"
-
-  [[ -d "${temp_dir}/${REPO_PATH}" ]] || fatal "仓库中未找到 ${REPO_PATH}。"
-  prepared_dir="${temp_dir}/${REPO_PATH}"
-  target_parent="$(dirname "${TOOLKIT_DIR}")"
-  target_name="$(basename "${TOOLKIT_DIR}")"
-  staging_dir="$(mktemp -d "${target_parent}/.${target_name}.tmp.XXXXXX")"
-  rmdir "${staging_dir}"
-  mv "${prepared_dir}" "${staging_dir}"
-
-  if [[ -e "${TOOLKIT_DIR}" ]]; then
-    backup_dir="${TOOLKIT_DIR}.bak_$(date +%Y%m%d_%H%M%S)"
-    msg_warn "检测到已存在的工具箱目录，将备份为: ${backup_dir}"
-    mv "${TOOLKIT_DIR}" "${backup_dir}"
-  fi
-
-  if mv "${staging_dir}" "${TOOLKIT_DIR}"; then
-    staging_dir=""
-  else
-    if [[ -n "${backup_dir}" && -e "${backup_dir}" && ! -e "${TOOLKIT_DIR}" ]]; then
-      mv "${backup_dir}" "${TOOLKIT_DIR}"
+    msg_info "正在从 GitHub 克隆仓库..."
+    if is_full_commit_ref; then
+      git init "${temp_dir}"
+      git -C "${temp_dir}" remote add origin "${repo_git_url}"
+      git -C "${temp_dir}" fetch --depth 1 origin "${TOOLKIT_REF}"
+      git -C "${temp_dir}" checkout --detach FETCH_HEAD
+    else
+      git clone --depth 1 --branch "${TOOLKIT_REF}" "${repo_git_url}" "${temp_dir}"
     fi
-    fatal "替换工具箱目录失败。"
-  fi
 
-  trap - EXIT
-  cleanup
+    [[ -d "${temp_dir}/${REPO_PATH}" ]] || fatal "仓库中未找到 ${REPO_PATH}。"
+    prepared_dir="${temp_dir}/${REPO_PATH}"
+    atomic_replace_dir "${prepared_dir}" "${TOOLKIT_DIR}"
+    prepared_dir=""
+  )
 }
 
 main() {
   parse_args "$@"
+  init_env_options
+  validate_ref
+  validate_checksums_url
 
   msg_info "================================================="
   msg_info "== 欢迎使用 SillyTavern Docker 工具箱安装程序 =="
@@ -304,6 +471,7 @@ main() {
   fi
 
   chmod +x "${TOOLKIT_DIR}/st-toolkit.sh" "${TOOLKIT_DIR}"/scripts/*.sh
+  find "${TOOLKIT_DIR}/scripts" -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
 
   echo
   msg_ok "工具箱已成功安装/更新。"
