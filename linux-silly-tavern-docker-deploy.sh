@@ -134,9 +134,7 @@ generate_random_string() {
   while (( ${#out} < len )); do
     chunk="$(head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | tr -d '\n')"
     out+="${chunk}"
-
     attempts=$((attempts + 1))
-
     (( attempts < 20 )) || fatal "随机字符串生成失败。"
   done
 
@@ -594,6 +592,41 @@ install_base_packages() {
   esac
 }
 
+ensure_python3_available() {
+  if command -v python3 &>/dev/null; then
+    return 0
+  fi
+
+  log "未检测到 python3，尝试安装 python3 以安全处理 Docker JSON 配置..."
+
+  case "${PKG_MANAGER}" in
+    apt)
+      ensure_apt_ready_debian
+      run_quiet "安装 python3" "${SUDO[@]}" apt-get install -y python3 || return 1
+      ;;
+    dnf)
+      run_quiet "安装 python3" "${SUDO[@]}" dnf install -y python3 || return 1
+      ;;
+    yum)
+      run_quiet "安装 python3" "${SUDO[@]}" yum install -y python3 || return 1
+      ;;
+    pacman)
+      run_quiet "安装 python3" "${SUDO[@]}" pacman -Sy --noconfirm python || return 1
+      ;;
+    apk)
+      run_quiet "安装 python3" "${SUDO[@]}" apk add --no-cache python3 || return 1
+      ;;
+    zypper)
+      run_quiet "安装 python3" "${SUDO[@]}" zypper --non-interactive install python3 || return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  command -v python3 &>/dev/null
+}
+
 # -----------------------------------------------------------------------------
 # Docker 安装
 # -----------------------------------------------------------------------------
@@ -769,63 +802,94 @@ ensure_docker_running() {
   "${SUDO[@]}" docker info &>/dev/null || fatal "Docker 未正常运行。"
 }
 
-configure_docker_mirror_safe() {
-  [[ "${USE_CHINA_MIRROR}" == "true" ]] || return 0
+restart_docker_service_if_possible() {
+  case "${INIT_SYSTEM}" in
+    systemd)
+      "${SUDO[@]}" systemctl daemon-reload || true
+      run_quiet "重启 Docker 服务" "${SUDO[@]}" systemctl restart docker
+      ;;
+    openrc)
+      run_quiet "重启 Docker 服务" "${SUDO[@]}" rc-service docker restart
+      ;;
+    *)
+      log "警告: 当前环境没有 systemd/openrc，无法自动重启 Docker。"
+      log "请手动重启 Docker 后继续。"
+      ;;
+  esac
+}
 
-  log "==> 配置 Docker 国内镜像加速..."
+configure_docker_mirror_safe() {
+  log "==> 检查 Docker 镜像加速配置..."
+
+  local daemon_json="/etc/docker/daemon.json"
+  local backup_file=""
+  local need_restart="false"
 
   "${SUDO[@]}" mkdir -p /etc/docker
 
-  if [[ -f /etc/docker/daemon.json ]]; then
-    "${SUDO[@]}" cp -a /etc/docker/daemon.json "/etc/docker/daemon.json.bak.$(date +%F_%H%M%S)" || true
-  fi
+  if [[ -f "${daemon_json}" ]] && grep -qsE "mirror\.ccs\.tencentyun\.com" "${daemon_json}"; then
+    backup_file="/etc/docker/daemon.json.bak.$(date +%F_%H%M%S)"
+    "${SUDO[@]}" cp -a "${daemon_json}" "${backup_file}" || true
 
-  if command -v python3 &>/dev/null; then
-    "${SUDO[@]}" python3 <<'PY'
+    log "检测到失效 Docker Hub 镜像加速地址 mirror.ccs.tencentyun.com，正在清理..."
+    log "原配置已备份到: ${backup_file}"
+
+    if ensure_python3_available; then
+      "${SUDO[@]}" python3 <<'PY'
 import json
 from pathlib import Path
 
 path = Path("/etc/docker/daemon.json")
-mirror = "https://mirror.ccs.tencentyun.com"
-data = {}
+bad_mirrors = {
+    "https://mirror.ccs.tencentyun.com",
+    "http://mirror.ccs.tencentyun.com",
+}
 
-if path.exists() and path.read_text().strip():
-    try:
-        data = json.loads(path.read_text())
-    except Exception:
-        backup = path.with_suffix(".json.invalid")
-        backup.write_text(path.read_text())
-        data = {}
+if not path.exists() or not path.read_text().strip():
+    path.write_text("{}\n")
+    raise SystemExit(0)
 
-mirrors = data.get("registry-mirrors", [])
-if not isinstance(mirrors, list):
-    mirrors = []
+try:
+    data = json.loads(path.read_text())
+except Exception:
+    invalid_backup = Path("/etc/docker/daemon.json.invalid")
+    invalid_backup.write_text(path.read_text())
+    path.write_text("{}\n")
+    raise SystemExit(0)
 
-if mirror not in mirrors:
-    mirrors.insert(0, mirror)
+if not isinstance(data, dict):
+    path.write_text("{}\n")
+    raise SystemExit(0)
 
-data["registry-mirrors"] = mirrors
+mirrors = data.get("registry-mirrors")
+
+if isinstance(mirrors, list):
+    mirrors = [m for m in mirrors if m not in bad_mirrors]
+    if mirrors:
+        data["registry-mirrors"] = mirrors
+    else:
+        data.pop("registry-mirrors", None)
+
 path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 PY
-  else
-    if [[ ! -s /etc/docker/daemon.json ]]; then
-      cat <<'EOF' | "${SUDO[@]}" tee /etc/docker/daemon.json >/dev/null
-{
-  "registry-mirrors": [
-    "https://mirror.ccs.tencentyun.com"
-  ]
-}
-EOF
     else
-      log "警告: python3 不存在且 daemon.json 已存在，为避免覆盖，跳过 Docker 镜像加速自动合并。"
+      log "警告: python3 不可用，无法安全合并 JSON。"
+      log "为避免 Docker 继续使用失效镜像源，已备份原配置并写入最小 Docker 配置。"
+      printf '{}\n' | "${SUDO[@]}" tee "${daemon_json}" >/dev/null
     fi
+
+    need_restart="true"
   fi
 
-  if [[ "${INIT_SYSTEM}" == "systemd" ]]; then
-    "${SUDO[@]}" systemctl daemon-reload || true
-    run_quiet "重启 Docker 服务" "${SUDO[@]}" systemctl restart docker
-  elif [[ "${INIT_SYSTEM}" == "openrc" ]]; then
-    run_quiet "重启 Docker 服务" "${SUDO[@]}" rc-service docker restart
+  if [[ "${USE_CHINA_MIRROR}" == "true" ]]; then
+    log "国内环境已启用专用镜像地址。"
+    log "跳过 Docker Hub registry-mirrors 自动配置，避免写入失效或不稳定镜像源。"
+  else
+    log "非国内环境，跳过 Docker Hub 镜像加速配置。"
+  fi
+
+  if [[ "${need_restart}" == "true" ]]; then
+    restart_docker_service_if_possible
   fi
 }
 
@@ -1057,10 +1121,11 @@ generate_compose_file() {
   fi
 
   local sillytavern_image="ghcr.io/sillytavern/sillytavern:latest"
-  local watchtower_image="containrrr/watchtower"
+  local watchtower_image="containrrr/watchtower:latest"
 
   if [[ "${USE_CHINA_MIRROR}" == "true" ]]; then
     sillytavern_image="ghcr.nju.edu.cn/sillytavern/sillytavern:latest"
+    watchtower_image="ghcr.nju.edu.cn/containrrr/watchtower:latest"
   fi
 
   prepare_app_dirs
