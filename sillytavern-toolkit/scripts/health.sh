@@ -6,13 +6,42 @@ ST_TOOLKIT_SKIP_COUNTRY=1
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-ok() { msg_ok "$*"; }
-warn() { msg_warn "$*"; }
-fail() { msg_error "$*"; }
+HEALTH_OK_COUNT=0
+HEALTH_WARN_COUNT=0
+HEALTH_FAIL_COUNT=0
+
+ok() {
+  HEALTH_OK_COUNT=$((HEALTH_OK_COUNT + 1))
+  msg_ok "$*"
+}
+
+warn() {
+  HEALTH_WARN_COUNT=$((HEALTH_WARN_COUNT + 1))
+  msg_warn "$*"
+}
+
+fail() {
+  HEALTH_FAIL_COUNT=$((HEALTH_FAIL_COUNT + 1))
+  msg_error "$*"
+}
 
 section() {
   log
   log "== $* =="
+}
+
+show_health_summary() {
+  log
+  log "== 检查汇总 =="
+  msg_info "通过: ${HEALTH_OK_COUNT}，警告: ${HEALTH_WARN_COUNT}，失败: ${HEALTH_FAIL_COUNT}"
+
+  if ((HEALTH_FAIL_COUNT > 0)); then
+    msg_error "下一步建议：优先处理失败项，确认 Docker/Compose 可用、部署文件存在，并重新运行健康检查。"
+  elif ((HEALTH_WARN_COUNT > 0)); then
+    msg_warn "下一步建议：检查警告项；若服务访问异常，请查看容器状态、端口映射和最近日志。"
+  else
+    msg_ok "下一步建议：基础健康检查通过；如仍有业务异常，请继续检查应用配置和运行日志。"
+  fi
 }
 
 show_file_status() {
@@ -104,3 +133,5 @@ if [[ "${docker_running}" == "true" && "${compose_available}" == "true" && -f "$
 else
   warn "跳过日志检查：Docker/Compose/Compose 文件不完整"
 fi
+
+show_health_summary

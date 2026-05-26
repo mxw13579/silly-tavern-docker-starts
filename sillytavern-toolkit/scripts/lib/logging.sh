@@ -25,13 +25,17 @@ run_quiet() {
   old_trap_int="$(trap -p | grep -E " SIGINT$| INT$" || true)"
   old_trap_term="$(trap -p | grep -E " SIGTERM$| TERM$" || true)"
 
-  local logfile pid frames i
+  local logfile pid frames i start_seconds elapsed notice_interval next_notice
   logfile="$(mktemp "/tmp/st-toolkit-log.XXXXXX")"
   frames='|/-\'
   i=0
+  start_seconds=${SECONDS}
+  notice_interval=30
+  next_notice=${notice_interval}
   pid=""
 
-  printf '%s ' "${title}"
+  log "${title}"
+  log "过程日志: ${logfile} (成功后自动删除)"
   "$@" >"${logfile}" 2>&1 &
   pid=$!
 
@@ -48,7 +52,12 @@ run_quiet() {
   trap cleanup_quiet INT TERM
 
   while kill -0 "${pid}" 2>/dev/null; do
-    printf '\r%s %s' "${title}" "${frames:i++%4:1}"
+    elapsed=$((SECONDS - start_seconds))
+    if ((elapsed >= next_notice)); then
+      printf '\r%s 已运行 %ss，日志: %s\033[K\n' "${title}" "${elapsed}" "${logfile}"
+      next_notice=$((next_notice + notice_interval))
+    fi
+    printf '\r%s %s\033[K' "${title}" "${frames:i++%4:1}"
     sleep 0.15
   done
 
@@ -66,12 +75,12 @@ run_quiet() {
   fi
 
   if wait "${pid}"; then
-    printf '\r%s ✅\n' "${title}"
+    printf '\r%s ✅\033[K\n' "${title}"
     rm -f "${logfile}"
     return 0
   fi
 
-  printf '\r%s ❌\n' "${title}"
+  printf '\r%s ❌\033[K\n' "${title}"
   log "命令执行失败，日志文件: ${logfile}"
   log "最近日志:"
   tail -n 80 "${logfile}" || true

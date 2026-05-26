@@ -298,18 +298,39 @@ print_mirror_speed_result() {
   fi
 }
 
+print_mirror_http_hint() {
+  msg_info "说明：HTTP 401 表示 Docker Registry /v2/ 可达但未认证，通常代表网络可达。"
+}
+
+mirror_probe_failed() {
+  local elapsed="$1"
+  local http_code="${2:-}"
+
+  if [[ "${elapsed}" == "9999.999" ]]; then
+    return 0
+  fi
+
+  if [[ ! "${http_code}" =~ ^[0-9]{3}$ || "${http_code}" == "000" ]]; then
+    return 0
+  fi
+
+  [[ "${http_code}" != "200" && "${http_code}" != "401" ]]
+}
+
 speed_test_current_mirrors() {
   local mirrors=()
   mapfile -t mirrors < <(get_current_docker_mirrors)
 
   if ((${#mirrors[@]} == 0)); then
     msg_warn "当前未配置 Docker 镜像加速器，将测试原生 Docker Hub 访问。"
+    print_mirror_http_hint
     printf '%-9s %-4s %s\n' "耗时" "HTTP" "地址"
     print_mirror_speed_result "$(measure_docker_hub_native)"
     return 0
   fi
 
   msg_info "正在测速当前 registry-mirrors..."
+  print_mirror_http_hint
   printf '%-9s %-4s %s\n' "耗时" "HTTP" "地址"
 
   local mirror normalized result
@@ -638,11 +659,11 @@ select_docker_mirror_interactive() {
   local menu_results=()
   local menu_labels=()
   local failed_results=()
-  local result time mirror
+  local result time code mirror
 
   for result in "${sorted[@]}"; do
-    IFS=$'\t' read -r time _ mirror <<<"${result}"
-    if [[ "${time}" == "9999.999" ]]; then
+    IFS=$'\t' read -r time code mirror <<<"${result}"
+    if mirror_probe_failed "${time}" "${code}"; then
       failed_results+=("${result}")
       continue
     fi
@@ -656,6 +677,7 @@ select_docker_mirror_interactive() {
 
   echo
   echo "请选择 Docker Hub 镜像加速器："
+  print_mirror_http_hint
   if ((${#menu_mirrors[@]} == 0)); then
     msg_warn "本次未发现测速成功的候选镜像，可选择自定义输入。"
   fi
@@ -708,20 +730,33 @@ select_docker_mirror_interactive() {
 
   echo
   msg_info "已选择: ${selected}"
-  print_mirror_speed_result "$(measure_mirror "${selected}")"
+  local selected_result selected_time selected_code
+  selected_result="$(measure_mirror "${selected}")"
+  print_mirror_speed_result "${selected_result}"
+  IFS=$'\t' read -r selected_time selected_code _ <<<"${selected_result}"
 
   local answer=""
-  read -r -p "确认写入 /etc/docker/daemon.json？(y/n): " answer </dev/tty
-  case "${answer}" in
-    [Yy]*)
-      write_docker_mirrors "${selected}"
-      msg_ok "Docker 镜像加速器已更新为: ${selected}"
-      confirm_docker_restart
-      ;;
-    *)
+  if mirror_probe_failed "${selected_time}" "${selected_code}"; then
+    msg_warn "该镜像本次测速失败，默认不会写入。HTTP ${selected_code:-000} 通常表示该地址当前不可用或无法完成 /v2/ 探测。"
+    read -r -p "如仍要写入，请输入 yes 或 YES: " answer </dev/tty
+    if [[ "${answer}" != "yes" && "${answer}" != "YES" ]]; then
       msg_warn "已取消写入。"
-      ;;
-  esac
+      return 0
+    fi
+  else
+    read -r -p "确认写入 /etc/docker/daemon.json？(y/n): " answer </dev/tty
+    case "${answer}" in
+      [Yy]*) ;;
+      *)
+        msg_warn "已取消写入。"
+        return 0
+        ;;
+    esac
+  fi
+
+  write_docker_mirrors "${selected}"
+  msg_ok "Docker 镜像加速器已更新为: ${selected}"
+  confirm_docker_restart
 }
 
 remove_docker_mirrors_interactive() {

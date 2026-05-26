@@ -155,3 +155,42 @@ load "../helpers/stubs.bash"
 
   assert_status_eq 0
 }
+
+@test "mirror.sh print_mirror_http_hint outputs 401 explanation" {
+  run bash -c '
+    set -euo pipefail
+    export ST_TOOLKIT_TEST_MODE=1
+    export ST_TOOLKIT_REQUIRE_SUDO=0
+    export ST_TOOLKIT_SKIP_COUNTRY=1
+    set --
+    source "sillytavern-toolkit/scripts/common.sh"
+    source "sillytavern-toolkit/scripts/docker/mirror.sh"
+    print_mirror_http_hint
+  '
+
+  assert_status_eq 0
+  [[ "${output}" == *"HTTP 401 表示 Docker Registry /v2/ 可达但未认证"* ]]
+}
+
+@test "mirror.sh mirror_probe_failed classifies registry probe results" {
+  run bash -c '
+    set -euo pipefail
+    export ST_TOOLKIT_TEST_MODE=1
+    export ST_TOOLKIT_REQUIRE_SUDO=0
+    export ST_TOOLKIT_SKIP_COUNTRY=1
+    set --
+    source "sillytavern-toolkit/scripts/common.sh"
+    source "sillytavern-toolkit/scripts/docker/mirror.sh"
+    ! mirror_probe_failed "0.123" "200"
+    ! mirror_probe_failed "0.123" "401"
+    mirror_probe_failed "9999.999" "000"
+    mirror_probe_failed "0.123" "000"
+    mirror_probe_failed "0.123" "404"
+    mirror_probe_failed "0.123" "500"
+    mirror_probe_failed "0.123" ""
+    mirror_probe_failed "0.123"
+    mirror_probe_failed "9999.999" "401"
+  '
+
+  assert_status_eq 0
+}
