@@ -121,18 +121,35 @@ bash ~/sillytavern-toolkit/st-toolkit.sh
 
 - `--no-launch`：只安装或更新工具箱，不在安装完成后自动启动菜单。
 - `--yes` 或 `-y`：在中国大陆环境使用 `ghfast.top` 代理下载时，自动确认代理下载风险；适合非交互式环境。
+- `--ref <ref>`：安装指定分支、标签或 40 位 commit，适合测试新版、固定版本或回滚。
+
+也可以通过环境变量控制安装行为：
+
+- `ST_TOOLKIT_REF=<ref>`：指定下载分支、标签或 40 位 commit。
+- `ST_TOOLKIT_YES=1`：等同于 `--yes`。
+- `ST_TOOLKIT_NO_LAUNCH=1`：等同于 `--no-launch`。
+- `ST_TOOLKIT_CHECKSUMS_URL=<https-url>`：可选 checksum manifest URL，用于校验代理下载后的工具箱文件。
 
 示例：
 
 ```bash
 bash install.sh --no-launch
 bash install.sh --yes --no-launch
+bash install.sh --ref main --no-launch
 ```
 
 如果直接使用 `bash -c "$(curl ...)"` 方式传参，需要在脚本内容后追加 `--`：
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/sillytavern-toolkit/install.sh)" -- --no-launch
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/sillytavern-toolkit/install.sh)" -- --ref main --no-launch
+```
+
+非交互安装示例：
+
+```bash
+ST_TOOLKIT_YES=1 ST_TOOLKIT_NO_LAUNCH=1 \
+bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mxw13579/silly-tavern-docker-starts/main/sillytavern-toolkit/install.sh)"
 ```
 
 ### 菜单能力
@@ -154,8 +171,20 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-do
 - 从测速结果中选择或更换 Docker Hub 镜像加速器。
 - 输入自定义 HTTPS 镜像加速器地址。
 - 移除已有 `registry-mirrors` 配置。
+- 恢复最近一次 `/etc/docker/daemon.json` 备份。
 
 修改 Docker 配置前会备份原 `/etc/docker/daemon.json`，修改后需要重启 Docker 服务才会生效。
+恢复 daemon 配置前会校验备份文件是否为合法 JSON；如果恢复后 Docker 重启失败，会尝试回滚到恢复前的配置。
+
+也可以直接调用工具脚本：
+
+```bash
+bash ~/sillytavern-toolkit/scripts/docker.sh mirror_menu
+bash ~/sillytavern-toolkit/scripts/docker.sh mirror_status
+bash ~/sillytavern-toolkit/scripts/docker.sh mirror_speed
+bash ~/sillytavern-toolkit/scripts/docker.sh restore_daemon
+bash ~/sillytavern-toolkit/scripts/docker.sh images
+```
 
 ### 备份、恢复与访问配置
 
@@ -178,6 +207,39 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/mxw13579/silly-tavern-do
 ```
 
 如果修改后访问异常，可以通过 `恢复上一次访问配置` 恢复最近一次访问配置备份，并选择是否立即重启 SillyTavern。
+
+### 非交互安装 SillyTavern
+
+工具箱的 SillyTavern 管理脚本支持非交互安装，适合 CI、初始化脚本或自部署平台调用。
+
+本地访问模式示例：
+
+```bash
+ST_NON_INTERACTIVE=1 \
+ST_ACCESS_MODE=local \
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh install
+```
+
+外网访问模式示例：
+
+```bash
+ST_NON_INTERACTIVE=1 \
+ST_ACCESS_MODE=public \
+ST_AUTH_USER=myuser \
+ST_AUTH_PASS=mypassword \
+ST_ENABLE_WATCHTOWER=0 \
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh install
+```
+
+非交互环境变量：
+
+- `ST_NON_INTERACTIVE=1`：启用非交互模式。
+- `ST_ACCESS_MODE=local|public`：选择本地访问或外网访问。
+- `ST_AUTH_USER=<username>`：外网访问模式必填。
+- `ST_AUTH_PASS=<password>`：外网访问模式必填。
+- `ST_ENABLE_WATCHTOWER=1|0`：是否启用 Watchtower。
+
+外网访问模式会先校验用户名和密码，再写入 `docker-compose.yaml` 和 `config/config.yaml`，避免未配置 Basic Auth 时暴露公网端口。
 
 ### 健康检查
 
@@ -357,6 +419,55 @@ docker compose down
 docker compose pull
 docker compose up -d
 ```
+
+工具箱脚本也可以直接执行子命令：
+
+```bash
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh status
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh info
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh change_access
+```
+
+---
+
+## 开发与验证
+
+本项目没有编译步骤，主要通过 Bash 语法检查、ShellCheck 和 Bats 测试验证。
+
+语法检查：
+
+```bash
+bash -n linux-silly-tavern-docker-deploy.sh \
+  sillytavern-toolkit/install.sh \
+  sillytavern-toolkit/st-toolkit.sh \
+  sillytavern-toolkit/scripts/*.sh \
+  sillytavern-toolkit/scripts/lib/*.sh \
+  sillytavern-toolkit/scripts/docker/*.sh \
+  sillytavern-toolkit/scripts/sillytavern/*.sh \
+  tests/helpers/*.bash \
+  tests/bats/*.bats
+```
+
+ShellCheck：
+
+```bash
+shellcheck --shell=bash linux-*.sh \
+  sillytavern-toolkit/install.sh \
+  sillytavern-toolkit/st-toolkit.sh \
+  sillytavern-toolkit/scripts/*.sh \
+  sillytavern-toolkit/scripts/lib/*.sh \
+  sillytavern-toolkit/scripts/docker/*.sh \
+  sillytavern-toolkit/scripts/sillytavern/*.sh
+```
+
+Bats 测试：
+
+```bash
+bats -r tests/bats
+```
+
+仓库已提供 `.gitlab-ci.yml`，自部署 GitLab 可以直接运行 `lint:bash_syntax`、`lint:shellcheck` 和 `test:bats`。
 
 ---
 
