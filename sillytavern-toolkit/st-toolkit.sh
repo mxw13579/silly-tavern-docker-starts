@@ -56,6 +56,7 @@ print_menu_header() {
   local description="$2"
 
   clear || true
+  print_sep
   print_compact_brand_header
   print_sep
   echo "${title}"
@@ -150,9 +151,7 @@ show_header() {
 }
 
 run_action() {
-  local pause_on_success=0
   if [[ "${1:-}" == "--pause-on-success" ]]; then
-    pause_on_success=1
     shift
   fi
 
@@ -165,13 +164,7 @@ run_action() {
     return "${code}"
   fi
 
-  if ((pause_on_success)); then
-    pause_to_continue
-  else
-    msg_ok "操作完成，返回菜单..."
-    sleep 0.8
-  fi
-
+  pause_to_continue
   return 0
 }
 
@@ -225,10 +218,10 @@ sources_menu() {
     fi
 
     case "${choice}" in
-      1) run_action "${SCRIPT_DIR}/scripts/sources.sh" set aliyun ;;
-      2) run_action "${SCRIPT_DIR}/scripts/sources.sh" set tencent ;;
-      3) run_action "${SCRIPT_DIR}/scripts/sources.sh" set huawei ;;
-      4) run_action "${SCRIPT_DIR}/scripts/sources.sh" restore ;;
+      1) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sources.sh" set aliyun ;;
+      2) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sources.sh" set tencent ;;
+      3) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sources.sh" set huawei ;;
+      4) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sources.sh" restore ;;
       0) break ;;
       *) msg_error "无效选项"; pause_to_continue ;;
     esac

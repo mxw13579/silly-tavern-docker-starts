@@ -30,7 +30,7 @@ load "../helpers/stubs.bash"
   assert_status_eq 0
 }
 
-@test "toolkit menu caches status and does not pause every successful action" {
+@test "toolkit menu caches status and pauses after successful actions" {
   run bash -c '
     set -euo pipefail
     f="sillytavern-toolkit/st-toolkit.sh"
@@ -39,8 +39,7 @@ load "../helpers/stubs.bash"
     grep -F "invalidate_status_cache()" "${f}" >/dev/null
     grep -F "read_menu_choice()" "${f}" >/dev/null
     grep -F "handle_empty_choice()" "${f}" >/dev/null
-    grep -F -- "--pause-on-success" "${f}" >/dev/null
-    grep -F "操作完成，返回菜单" "${f}" >/dev/null
+    grep -A20 "run_action()" "${f}" | grep -F "pause_to_continue" >/dev/null
   '
 
   assert_status_eq 0
@@ -65,6 +64,21 @@ load "../helpers/stubs.bash"
     set -euo pipefail
     f="sillytavern-toolkit/st-toolkit.sh"
     grep -F "SillyTavern Docker 工具箱 | FuFu API | 群 1019836466" "${f}" >/dev/null
+    grep -A8 "print_menu_header()" "${f}" | grep -F "print_sep" >/dev/null
+    grep -A8 "print_menu_header()" "${f}" | grep -F "print_compact_brand_header" >/dev/null
+  '
+
+  assert_status_eq 0
+}
+
+@test "source mirror changes pause so users can read the result" {
+  run bash -c '
+    set -euo pipefail
+    f="sillytavern-toolkit/st-toolkit.sh"
+    grep -F "run_action --pause-on-success \"\${SCRIPT_DIR}/scripts/sources.sh\" set aliyun" "${f}" >/dev/null
+    grep -F "run_action --pause-on-success \"\${SCRIPT_DIR}/scripts/sources.sh\" set tencent" "${f}" >/dev/null
+    grep -F "run_action --pause-on-success \"\${SCRIPT_DIR}/scripts/sources.sh\" set huawei" "${f}" >/dev/null
+    grep -F "run_action --pause-on-success \"\${SCRIPT_DIR}/scripts/sources.sh\" restore" "${f}" >/dev/null
   '
 
   assert_status_eq 0
