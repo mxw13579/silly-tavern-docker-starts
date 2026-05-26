@@ -2,3 +2,6 @@
 /.idea/
 /.spec-workflow/
 /.planning/
+/.ai_state/
+/CLAUDE.md
+.ace-tool/
