@@ -115,3 +115,43 @@ load "../helpers/stubs.bash"
   '
   assert_status_eq 0
 }
+
+@test "mirror.sh tests native Docker Hub when no registry mirror is configured" {
+  local stub_dir
+  stub_dir="$(make_stub_dir)"
+
+  write_exe "${stub_dir}/curl" \
+    '#!/usr/bin/env bash' \
+    'printf "%s" "401 0.456"'
+  prepend_path "${stub_dir}"
+
+  run bash -c '
+    set -euo pipefail
+    export ST_TOOLKIT_TEST_MODE=1
+    export ST_TOOLKIT_REQUIRE_SUDO=0
+    export ST_TOOLKIT_SKIP_COUNTRY=1
+    set --
+    source "sillytavern-toolkit/scripts/common.sh"
+    source "sillytavern-toolkit/scripts/docker/mirror.sh"
+    get_current_docker_mirrors() { return 0; }
+    out="$(speed_test_current_mirrors)"
+    grep -F "当前未配置 Docker 镜像加速器，将测试原生 Docker Hub 访问。" <<<"${out}" >/dev/null
+    grep -F "Docker Hub 原生 (https://registry-1.docker.io)" <<<"${out}" >/dev/null
+    grep -F "0.456s" <<<"${out}" >/dev/null
+  '
+
+  assert_status_eq 0
+}
+
+@test "mirror.sh mirror selection separates unavailable candidates from selectable recommendations" {
+  run bash -c '
+    set -euo pipefail
+    f="sillytavern-toolkit/scripts/docker/mirror.sh"
+    grep -F "不可用候选（本次不推荐）" "${f}" >/dev/null
+    grep -F "本次未发现测速成功的候选镜像，可选择自定义输入。" "${f}" >/dev/null
+    ! grep -F "腾讯云（推荐）" "${f}" >/dev/null
+    grep -F "腾讯云（默认）" "${f}" >/dev/null
+  '
+
+  assert_status_eq 0
+}

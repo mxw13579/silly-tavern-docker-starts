@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 DOCKER_DEFAULT_MIRROR="https://mirror.ccs.tencentyun.com"
+DOCKER_HUB_NATIVE_REGISTRY="https://registry-1.docker.io"
 OPSNOTE_MIRROR_URL="https://tools.opsnote.top/registry-mirrors/"
 DOCKER_MIRROR_SPEED_CONCURRENCY="${DOCKER_MIRROR_SPEED_CONCURRENCY:-5}"
 
@@ -108,6 +109,47 @@ measure_mirror() {
     fi
     printf '%s' "${line}"
   fi
+}
+
+measure_docker_hub_native() {
+  local endpoint="${DOCKER_HUB_NATIVE_REGISTRY}/v2/"
+  local display="Docker Hub 原生 (${DOCKER_HUB_NATIVE_REGISTRY})"
+
+  local cache_ttl=1800
+  local cache_key=""
+  cache_key="$(st_cache_key "docker.native.speed|${endpoint}" 2>/dev/null)" || cache_key=""
+  if [[ -n "${cache_key}" ]]; then
+    local cached=""
+    if cached="$(st_cache_read "${cache_ttl}" "${cache_key}" 2>/dev/null)" && [[ -n "${cached}" ]]; then
+      printf '%s\n' "${cached%$'\n'}"
+      return 0
+    fi
+  fi
+
+  command -v curl &>/dev/null || {
+    printf '9999.999\t000\t%s\n' "${display}"
+    return 0
+  }
+
+  local result code total line
+  result="$(curl -L -sS -o /dev/null -w '%{http_code} %{time_total}' \
+    --connect-timeout 5 \
+    --max-time 15 \
+    "${endpoint}" 2>/dev/null || true)"
+
+  code="${result%% *}"
+  total="${result##* }"
+
+  if [[ "${code}" == "200" || "${code}" == "401" ]]; then
+    printf -v line '%s\t%s\t%s\n' "${total}" "${code}" "${display}"
+  else
+    printf -v line '9999.999\t%s\t%s\n' "${code:-000}" "${display}"
+  fi
+
+  if [[ -n "${cache_key}" ]]; then
+    printf '%s' "${line}" | st_cache_write "${cache_key}" 2>/dev/null || true
+  fi
+  printf '%s' "${line}"
 }
 
 measure_mirrors_concurrent() {
@@ -261,7 +303,9 @@ speed_test_current_mirrors() {
   mapfile -t mirrors < <(get_current_docker_mirrors)
 
   if ((${#mirrors[@]} == 0)); then
-    msg_warn "当前未配置 Docker 镜像加速器。"
+    msg_warn "当前未配置 Docker 镜像加速器，将测试原生 Docker Hub 访问。"
+    printf '%-9s %-4s %s\n' "耗时" "HTTP" "地址"
+    print_mirror_speed_result "$(measure_docker_hub_native)"
     return 0
   fi
 
@@ -338,6 +382,24 @@ build_mirror_options() {
   mapfile -t results < <(measure_mirrors_concurrent "${candidates[@]}")
 
   printf '%s\n' "${results[@]}" | sort -n -k1,1
+}
+
+mirror_menu_label() {
+  local mirror="$1"
+  local rank="$2"
+  local label="${mirror#https://}"
+
+  if [[ "${mirror}" == "${DOCKER_DEFAULT_MIRROR}" ]]; then
+    if [[ "${rank}" == "1" ]]; then
+      label="腾讯云（默认，最快）"
+    else
+      label="腾讯云（默认）"
+    fi
+  elif [[ "${rank}" == "1" ]]; then
+    label="${label}（最快）"
+  fi
+
+  printf '%s\n' "${label}"
 }
 
 write_docker_mirrors() {
@@ -450,7 +512,7 @@ find_latest_daemon_json_backup() {
         || true
     )"
   else
-    # 极保守兜底：若没有可用的 stat 格式化能力，退化为按名称字典序找“最新”。
+    # 极保守兜底：若没有可用的 stat 格式化能力，退化为按名称字典序找最新备份。
     # 本项目备份命名使用 YYYY-MM-DD_HHMMSS，字典序与时间序一致。
     latest="$(
       find /etc/docker -maxdepth 1 -type f -name 'daemon.json.bak.*' -print 2>/dev/null \
@@ -572,42 +634,50 @@ select_docker_mirror_interactive() {
   local sorted=()
   mapfile -t sorted < <(build_mirror_options)
 
-  local menu_mirrors=("${DOCKER_DEFAULT_MIRROR}")
+  local menu_mirrors=()
   local menu_results=()
-  local default_result result time code mirror
-
-  default_result="$(printf '%s\n' "${sorted[@]}" | awk -F'\t' -v mirror="${DOCKER_DEFAULT_MIRROR}" '$3 == mirror { print; exit }')"
-  [[ -n "${default_result}" ]] || default_result="$(measure_mirror "${DOCKER_DEFAULT_MIRROR}")"
-  menu_results+=("${default_result}")
+  local menu_labels=()
+  local failed_results=()
+  local result time mirror
 
   for result in "${sorted[@]}"; do
-    IFS=$'\t' read -r time code mirror <<<"${result}"
-    [[ "${mirror}" == "${DOCKER_DEFAULT_MIRROR}" ]] && continue
-    [[ "${time}" == "9999.999" ]] && continue
-    menu_mirrors+=("${mirror}")
-    menu_results+=("${result}")
-    ((${#menu_mirrors[@]} >= 6)) && break
+    IFS=$'\t' read -r time _ mirror <<<"${result}"
+    if [[ "${time}" == "9999.999" ]]; then
+      failed_results+=("${result}")
+      continue
+    fi
+
+    if ((${#menu_mirrors[@]} < 6)); then
+      menu_mirrors+=("${mirror}")
+      menu_results+=("${result}")
+      menu_labels+=("$(mirror_menu_label "${mirror}" "${#menu_mirrors[@]}")")
+    fi
   done
 
   echo
   echo "请选择 Docker Hub 镜像加速器："
+  if ((${#menu_mirrors[@]} == 0)); then
+    msg_warn "本次未发现测速成功的候选镜像，可选择自定义输入。"
+  fi
 
   local i label display_time display_code
   for i in "${!menu_mirrors[@]}"; do
     IFS=$'\t' read -r display_time display_code mirror <<<"${menu_results[$i]}"
-    if [[ "${display_time}" == "9999.999" ]]; then
-      display_time="失败"
-    else
-      display_time="${display_time}s"
-    fi
+    display_time="${display_time}s"
+    label="${menu_labels[$i]}"
 
-    label="${menu_mirrors[$i]}"
-    if ((i == 0)); then
-      label="腾讯云（推荐）"
-    fi
-
-    printf '%2d. %-18s %-8s %s\n' "$((i + 1))" "${label}" "${display_time}" "${menu_mirrors[$i]}"
+    printf '%2d. %-28s %-10s HTTP %-3s %s\n' "$((i + 1))" "${label}" "${display_time}" "${display_code}" "${menu_mirrors[$i]}"
   done
+
+  if ((${#failed_results[@]} > 0)); then
+    echo
+    echo "不可用候选（本次不推荐）："
+    for result in "${failed_results[@]}"; do
+      IFS=$'\t' read -r _ display_code mirror <<<"${result}"
+      label="$(mirror_menu_label "${mirror}" "-")"
+      printf '    %-28s %-10s HTTP %-3s %s\n' "${label}" "失败" "${display_code}" "${mirror}"
+    done
+  fi
 
   local custom_index cancel_index
   custom_index=$((${#menu_mirrors[@]} + 1))

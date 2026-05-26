@@ -44,7 +44,7 @@ print_final_info() {
     auth_user="$(grep -m1 "username:" <<<"${config_content}" | sed 's/^[[:space:]]*username:[[:space:]]*//; s/\"//g' || true)"
     log "访问地址: http://${public_ip}:8000"
     log "用户名: ${auth_user:-未知}"
-    log "密码: 已隐藏；如需重置，请使用菜单“修改访问模式/用户名密码”。"
+    log "密码: 已隐藏；如需重置，请使用菜单'修改访问模式/用户名密码'。"
   else
     log "本机访问地址: http://127.0.0.1:8000"
     log "外网访问未开启。"
