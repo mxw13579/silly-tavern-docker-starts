@@ -77,19 +77,19 @@ set_arch_mirror() {
     aliyun)
       if ! grep -q "mirrors.aliyun.com/archlinux" /etc/pacman.d/mirrorlist 2>/dev/null; then
         "${SUDO[@]}" cp -a /etc/pacman.d/mirrorlist "/etc/pacman.d/mirrorlist.bak.$(date +%F_%H%M%S)" || true
-        "${SUDO[@]}" sed -i '1s|^|Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch\n|' /etc/pacman.d/mirrorlist
+        "${SUDO[@]}" sed -i "1s|^|Server = https://mirrors.aliyun.com/archlinux/\$repo/os/\$arch\\n|" /etc/pacman.d/mirrorlist
       fi
       ;;
     tencent)
       if ! grep -q "mirrors.cloud.tencent.com/archlinux" /etc/pacman.d/mirrorlist 2>/dev/null; then
         "${SUDO[@]}" cp -a /etc/pacman.d/mirrorlist "/etc/pacman.d/mirrorlist.bak.$(date +%F_%H%M%S)" || true
-        "${SUDO[@]}" sed -i '1s|^|Server = https://mirrors.cloud.tencent.com/archlinux/$repo/os/$arch\n|' /etc/pacman.d/mirrorlist
+        "${SUDO[@]}" sed -i "1s|^|Server = https://mirrors.cloud.tencent.com/archlinux/\$repo/os/\$arch\\n|" /etc/pacman.d/mirrorlist
       fi
       ;;
     huawei)
       if ! grep -q "repo.huaweicloud.com/archlinux" /etc/pacman.d/mirrorlist 2>/dev/null; then
         "${SUDO[@]}" cp -a /etc/pacman.d/mirrorlist "/etc/pacman.d/mirrorlist.bak.$(date +%F_%H%M%S)" || true
-        "${SUDO[@]}" sed -i '1s|^|Server = https://repo.huaweicloud.com/archlinux/$repo/os/$arch\n|' /etc/pacman.d/mirrorlist
+        "${SUDO[@]}" sed -i "1s|^|Server = https://repo.huaweicloud.com/archlinux/\$repo/os/\$arch\\n|" /etc/pacman.d/mirrorlist
       fi
       ;;
     *) fatal "不支持的镜像源: ${provider}" ;;
@@ -141,12 +141,74 @@ set_mirror() {
   msg_ok "软件源处理完成。"
 }
 
+find_latest_backup_path() {
+  local pattern="$1"
+  local dir name latest
+
+  dir="$(dirname -- "${pattern}")"
+  name="$(basename -- "${pattern}")"
+  latest=""
+
+  if stat -c '%Y %n' /dev/null >/dev/null 2>&1; then
+    latest="$(
+      find "${dir}" -maxdepth 1 -type f -name "${name}" -exec stat -c '%Y %n' {} \; 2>/dev/null |
+        sort -nr |
+        awk 'NR == 1 { sub(/^[^ ]+ /, ""); print; exit }'
+    )"
+  elif stat -f '%m %N' /dev/null >/dev/null 2>&1; then
+    latest="$(
+      find "${dir}" -maxdepth 1 -type f -name "${name}" -exec stat -f '%m %N' {} \; 2>/dev/null |
+        sort -nr |
+        awk 'NR == 1 { sub(/^[^ ]+ /, ""); print; exit }'
+    )"
+  else
+    latest="$(
+      find "${dir}" -maxdepth 1 -type f -name "${name}" -print 2>/dev/null |
+        sort -r |
+        awk 'NR == 1 { print; exit }'
+    )"
+  fi
+
+  printf '%s\n' "${latest}"
+}
+
+find_latest_backup_dir() {
+  local pattern="$1"
+  local dir name latest
+
+  dir="$(dirname -- "${pattern}")"
+  name="$(basename -- "${pattern}")"
+  latest=""
+
+  if stat -c '%Y %n' /dev/null >/dev/null 2>&1; then
+    latest="$(
+      find "${dir}" -maxdepth 1 -type d -name "${name}" -exec stat -c '%Y %n' {} \; 2>/dev/null |
+        sort -nr |
+        awk 'NR == 1 { sub(/^[^ ]+ /, ""); print; exit }'
+    )"
+  elif stat -f '%m %N' /dev/null >/dev/null 2>&1; then
+    latest="$(
+      find "${dir}" -maxdepth 1 -type d -name "${name}" -exec stat -f '%m %N' {} \; 2>/dev/null |
+        sort -nr |
+        awk 'NR == 1 { sub(/^[^ ]+ /, ""); print; exit }'
+    )"
+  else
+    latest="$(
+      find "${dir}" -maxdepth 1 -type d -name "${name}" -print 2>/dev/null |
+        sort -r |
+        awk 'NR == 1 { print; exit }'
+    )"
+  fi
+
+  printf '%s\n' "${latest}"
+}
+
 restore_latest_file_backup() {
   local target="$1"
   local pattern="$2"
   local latest=""
 
-  latest="$(ls -1t ${pattern} 2>/dev/null | head -n 1 || true)"
+  latest="$(find_latest_backup_path "${pattern}")"
   [[ -n "${latest}" ]] || return 1
 
   "${SUDO[@]}" cp -a "${latest}" "${target}"
@@ -155,7 +217,7 @@ restore_latest_file_backup() {
 
 restore_latest_apt_switch_backup() {
   local latest=""
-  latest="$(ls -1dt /etc/apt/sources.switch-backup.* 2>/dev/null | head -n 1 || true)"
+  latest="$(find_latest_backup_dir "/etc/apt/sources.switch-backup.*")"
   [[ -n "${latest}" ]] || return 1
 
   if [[ -f "${latest}/sources.list" ]]; then

@@ -54,6 +54,7 @@ sources_menu() {
     echo "   0. 返回主菜单"
     echo "---------------------------------------------------"
     read -r -p "请输入选项 [0-4]: " choice
+    [[ -n "${choice}" ]] || continue
 
     case "${choice}" in
       1) run_action "${SCRIPT_DIR}/scripts/sources.sh" set aliyun ;;
@@ -85,6 +86,7 @@ docker_menu() {
     echo "   0. 返回主菜单"
     echo "---------------------------------------------------"
     read -r -p "请输入选项 [0-6]: " choice
+    [[ -n "${choice}" ]] || continue
 
     case "${choice}" in
       1) run_action "${SCRIPT_DIR}/scripts/docker.sh" install ;;
@@ -123,6 +125,7 @@ sillytavern_menu() {
     echo "   0. 返回主菜单"
     echo "---------------------------------------------------"
     read -r -p "请输入选项 [0-11]: " choice
+    [[ -n "${choice}" ]] || continue
 
     case "${choice}" in
       1) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" install ;;
@@ -157,6 +160,7 @@ main() {
     echo "   0. 退出脚本"
     echo "----------------------------------------------------------"
     read -r -p "请输入选项 [0-3]: " choice
+    [[ -n "${choice}" ]] || continue
 
     case "${choice}" in
       1) sources_menu ;;
