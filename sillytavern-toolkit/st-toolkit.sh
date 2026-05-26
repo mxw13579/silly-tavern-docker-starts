@@ -15,13 +15,39 @@ set +e
 STATUS_CACHE=""
 STATUS_CACHE_SECONDS=0
 STATUS_CACHE_TTL=15
-MENU_SEP="----------------------------------------------------------"
+MENU_WIDTH=58
+MENU_LIGHT_SEP="----------------------------------------------------------"
+MENU_HEAVY_SEP="=========================================================="
 
 print_sep() {
-  echo "${MENU_SEP}"
+  local char="${1:--}"
+
+  case "${char}" in
+    -) echo "${MENU_LIGHT_SEP}" ;;
+    =) echo "${MENU_HEAVY_SEP}" ;;
+    *) printf '%*s\n' "${MENU_WIDTH}" "" | tr ' ' "${char}" ;;
+  esac
 }
 
-print_brand_header() {
+print_centered_line() {
+  local text="$1"
+  local padding=$(((MENU_WIDTH - ${#text}) / 2))
+
+  if ((padding < 0)); then
+    padding=0
+  fi
+
+  printf '%*s%s\n' "${padding}" "" "${text}"
+}
+
+print_home_brand_header() {
+  print_sep "="
+  print_centered_line "SillyTavern Docker 工具箱"
+  print_centered_line "FuFu API | 群 1019836466"
+  print_sep "="
+}
+
+print_compact_brand_header() {
   echo "SillyTavern Docker 工具箱 | FuFu API | 群 1019836466"
 }
 
@@ -30,20 +56,73 @@ print_menu_header() {
   local description="$2"
 
   clear || true
-  print_brand_header
+  print_compact_brand_header
+  print_sep
   echo "${title}"
   echo "${description}"
   print_sep
 }
 
+clean_status_text() {
+  sed -E $'s/\x1B\\[[0-9;]*[[:alpha:]]//g; s/^\[[A-Z]+\][[:space:]]*//; s/[[:space:]]+$//'
+}
+
+extract_status_value() {
+  local output="$1"
+  local label="$2"
+  local fallback="${3:-未知}"
+  local line=""
+  local value=""
+
+  line="$(printf '%s\n' "${output}" | clean_status_text | grep -m1 -E "^[[:space:]]*${label}[[:space:]]*:" || true)"
+  value="${line#*:}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+
+  printf '%s' "${value:-${fallback}}"
+}
+
+format_system_environment() {
+  local system="${OS:-未知}"
+
+  if [[ -n "${OS_VERSION_ID:-}" ]]; then
+    system+=" ${OS_VERSION_ID}"
+  fi
+
+  if [[ -n "${OS_VERSION_CODENAME:-}" ]]; then
+    system+=" (${OS_VERSION_CODENAME})"
+  fi
+
+  printf '%s' "${system}"
+}
+
+format_china_mirror_status() {
+  if [[ "${USE_CHINA_MIRROR:-false}" == "true" ]]; then
+    echo "已启用"
+  else
+    echo "未启用"
+  fi
+}
+
 render_status_header() {
+  local sources_status=""
+  local docker_status=""
+  local sillytavern_status=""
+
+  sources_status="$("${SCRIPT_DIR}/scripts/sources.sh" status </dev/null 2>&1 || true)"
+  docker_status="$("${SCRIPT_DIR}/scripts/docker.sh" status </dev/null 2>&1 || true)"
+  sillytavern_status="$("${SCRIPT_DIR}/scripts/sillytavern.sh" status </dev/null 2>&1 || true)"
+
   echo "[系统]"
-  toolkit_status_header
+  printf '系统环境 : %s\n' "$(format_system_environment)"
+  printf '服务管理 : %s\n' "${INIT_SYSTEM:-未知}"
+  printf '包管理器 : %s\n' "${PKG_MANAGER:-未知}"
+  printf '国内镜像 : %s\n' "$(format_china_mirror_status)"
   echo
   echo "[组件]"
-  "${SCRIPT_DIR}/scripts/sources.sh" status </dev/null
-  "${SCRIPT_DIR}/scripts/docker.sh" status </dev/null
-  "${SCRIPT_DIR}/scripts/sillytavern.sh" status </dev/null
+  printf '软件源   : %s\n' "$(extract_status_value "${sources_status}" "软件源")"
+  printf 'Docker   : %s\n' "$(extract_status_value "${docker_status}" "Docker 环境")"
+  printf '应用     : %s\n' "$(extract_status_value "${sillytavern_status}" "SillyTavern")"
 }
 
 refresh_status_cache() {
@@ -61,8 +140,7 @@ show_header() {
   local cache_age=$((SECONDS - STATUS_CACHE_SECONDS))
 
   clear || true
-  print_brand_header
-  print_sep
+  print_home_brand_header
   if [[ -z "${STATUS_CACHE}" || "${force_refresh}" == "1" || ${cache_age} -ge ${STATUS_CACHE_TTL} ]]; then
     refresh_status_cache
   fi
@@ -257,9 +335,9 @@ main() {
     print_sep
     echo
     echo "菜单说明"
-    echo "   1. 软件源管理"
-    echo "   2. Docker 环境管理"
-    echo "   3. SillyTavern 应用管理"
+    echo "   1. 软件源管理              切换/恢复系统软件源"
+    echo "   2. Docker 环境管理         安装 Docker、Compose、镜像加速"
+    echo "   3. SillyTavern 应用管理    安装、启动、备份、访问配置"
     echo
     echo "   0. 退出脚本"
     print_sep

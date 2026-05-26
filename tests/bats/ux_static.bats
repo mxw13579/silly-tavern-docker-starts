@@ -50,21 +50,49 @@ load "../helpers/stubs.bash"
   run bash -c '
     set -euo pipefail
     f="sillytavern-toolkit/st-toolkit.sh"
-    grep -Eq "^(function[[:space:]]+)?(print|render|show)_(brand|toolkit)_(header|banner)[[:space:]]*(\\(\\))?[[:space:]]*\\{" "${f}" >/dev/null
+    grep -Eq "^(function[[:space:]]+)?(print|render|show)_(home_)?(brand|toolkit)_(header|banner)[[:space:]]*(\\(\\))?[[:space:]]*\\{" "${f}" >/dev/null
     grep -Eq "^(function[[:space:]]+)?print_sep[[:space:]]*(\\(\\))?[[:space:]]*\\{" "${f}" >/dev/null
+    grep -F "SillyTavern Docker 工具箱" "${f}" >/dev/null
+    grep -F "FuFu API | 群 1019836466" "${f}" >/dev/null
+    grep -F "==========================================================" "${f}" >/dev/null
+  '
+
+  assert_status_eq 0
+}
+
+@test "toolkit submenus keep compact brand header" {
+  run bash -c '
+    set -euo pipefail
+    f="sillytavern-toolkit/st-toolkit.sh"
     grep -F "SillyTavern Docker 工具箱 | FuFu API | 群 1019836466" "${f}" >/dev/null
   '
 
   assert_status_eq 0
 }
 
-@test "toolkit home menu groups system component and suggested workflow copy" {
+@test "toolkit home status uses stable field labels" {
   run bash -c '
     set -euo pipefail
     f="sillytavern-toolkit/st-toolkit.sh"
-    grep -F "[系统]" "${f}" >/dev/null
-    grep -F "[组件]" "${f}" >/dev/null
-    grep -Eq "建议流程|推荐流程|下一步建议|建议操作" "${f}" >/dev/null
+    grep -F "系统环境 :" "${f}" >/dev/null
+    grep -F "服务管理 :" "${f}" >/dev/null
+    grep -F "包管理器 :" "${f}" >/dev/null
+    grep -F "国内镜像 :" "${f}" >/dev/null
+    grep -F "软件源   :" "${f}" >/dev/null
+    grep -F "Docker   :" "${f}" >/dev/null
+    grep -F "应用     :" "${f}" >/dev/null
+  '
+
+  assert_status_eq 0
+}
+
+@test "toolkit home menu keeps workflow descriptions" {
+  run bash -c '
+    set -euo pipefail
+    f="sillytavern-toolkit/st-toolkit.sh"
+    grep -F "切换/恢复系统软件源" "${f}" >/dev/null
+    grep -F "安装 Docker、Compose、镜像加速" "${f}" >/dev/null
+    grep -F "安装、启动、备份、访问配置" "${f}" >/dev/null
   '
 
   assert_status_eq 0
