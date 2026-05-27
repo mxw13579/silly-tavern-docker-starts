@@ -146,11 +146,14 @@ load "../helpers/stubs.bash"
 @test "mirror.sh mirror selection separates unavailable candidates from selectable recommendations" {
   run bash -c '
     set -euo pipefail
-    f="sillytavern-toolkit/scripts/docker/mirror.sh"
-    grep -F "不可用候选（本次不推荐）" "${f}" >/dev/null
-    grep -F "本次未发现测速成功的候选镜像，可选择自定义输入。" "${f}" >/dev/null
-    ! grep -F "腾讯云（推荐）" "${f}" >/dev/null
-    grep -F "腾讯云（默认）" "${f}" >/dev/null
+    files=(sillytavern-toolkit/scripts/docker/mirror.sh sillytavern-toolkit/scripts/docker/mirror/*.sh)
+
+    grep -F "不可用候选（本次不推荐）" "${files[@]}" >/dev/null
+    grep -F "本次未发现测速成功的候选镜像，可选择自定义输入。" "${files[@]}" >/dev/null
+    grep -F "腾讯云（默认）" "${files[@]}" >/dev/null
+    grep -F "mirror_probe_failed" "${files[@]}" >/dev/null
+    grep -F "failed_results+=(" "${files[@]}" >/dev/null
+    ! grep -F "腾讯云（推荐）" "${files[@]}" >/dev/null
   '
 
   assert_status_eq 0

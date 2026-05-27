@@ -6,9 +6,13 @@ load "../helpers/stubs.bash"
   run bash -c '
     set -euo pipefail
     bash -n sillytavern-toolkit/scripts/docker/mirror.sh
+    bash -n sillytavern-toolkit/scripts/docker/mirror/*.sh
+    bash -n sillytavern-toolkit/install.sh
+    bash -n sillytavern-toolkit/install/*.sh
     bash -n sillytavern-toolkit/scripts/health.sh
     bash -n sillytavern-toolkit/scripts/lib/logging.sh
     bash -n sillytavern-toolkit/scripts/sources.sh
+    bash -n sillytavern-toolkit/scripts/sources/*.sh
     bash -n sillytavern-toolkit/st-toolkit.sh
   '
 
@@ -25,6 +29,18 @@ load "../helpers/stubs.bash"
     grep -F "如需回滚，可运行:" "${f}" >/dev/null
     grep -F "fatal_restore_refresh_failed()" "${f}" >/dev/null
     grep -F "请检查网络、DNS、代理或镜像站状态" "${f}" >/dev/null
+  '
+
+  assert_status_eq 0
+}
+
+@test "module facades report missing child modules clearly" {
+  run bash -c '
+    set -euo pipefail
+    grep -F "缺少 Docker 镜像加速器模块" "sillytavern-toolkit/scripts/docker/mirror.sh" >/dev/null
+    grep -F "缺少软件源模块" "sillytavern-toolkit/scripts/sources.sh" >/dev/null
+    grep -F "require_docker_mirror_module()" "sillytavern-toolkit/scripts/docker/mirror.sh" >/dev/null
+    grep -F "require_sources_module()" "sillytavern-toolkit/scripts/sources.sh" >/dev/null
   '
 
   assert_status_eq 0
@@ -74,11 +90,13 @@ load "../helpers/stubs.bash"
 @test "docker mirror submenu keeps compact brand header" {
   run bash -c '
     set -euo pipefail
-    f="sillytavern-toolkit/scripts/docker/mirror.sh"
-    grep -F "print_docker_mirror_menu_header()" "${f}" >/dev/null
-    grep -F "SillyTavern Docker 工具箱 | FuFu API | 群 1019836466" "${f}" >/dev/null
-    grep -F "DOCKER_MIRROR_MENU_SEP" "${f}" >/dev/null
-    grep -F "print_docker_mirror_menu_header \"选择 Docker Hub 镜像加速器\"" "${f}" >/dev/null
+    files=(sillytavern-toolkit/scripts/docker/mirror.sh sillytavern-toolkit/scripts/docker/mirror/*.sh)
+    grep -F "print_docker_mirror_menu_header()" "${files[@]}" >/dev/null
+    grep -F "FuFu API" "${files[@]}" >/dev/null
+    grep -F "1019836466" "${files[@]}" >/dev/null
+    grep -F "DOCKER_MIRROR_MENU_SEP" "${files[@]}" >/dev/null
+    grep -F "print_docker_mirror_menu_header" "${files[@]}" >/dev/null
+    grep -F "Docker Hub" "${files[@]}" >/dev/null
   '
 
   assert_status_eq 0

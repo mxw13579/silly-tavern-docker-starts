@@ -183,10 +183,7 @@ write_install_stubs() {
 @test "install.sh unset boolean envs do not exit under set -e" {
   run bash -c '
     set -euo pipefail
-    f="sillytavern-toolkit/install.sh"
-    lib="${BATS_TEST_TMPDIR}/install-lib.sh"
-    sed '\''$d'\'' "${f}" > "${lib}"
-    . "${lib}"
+    . "sillytavern-toolkit/install.sh"
 
     unset ST_TOOLKIT_YES ST_TOOLKIT_NO_LAUNCH
     ASSUME_YES=false
@@ -197,6 +194,34 @@ write_install_stubs() {
   '
 
   assert_status_eq 0
+}
+
+@test "install.sh standalone help works without installer modules" {
+  run bash -c '
+    set -euo pipefail
+    tmp="${BATS_TEST_TMPDIR}/standalone-install"
+    mkdir -p "${tmp}"
+    cp "sillytavern-toolkit/install.sh" "${tmp}/install.sh"
+
+    bash "${tmp}/install.sh" --help
+  '
+
+  assert_status_eq 0
+  [[ "${output}" == *"用法:"* ]]
+}
+
+@test "install.sh standalone install reports missing modules clearly" {
+  run bash -c '
+    set -euo pipefail
+    tmp="${BATS_TEST_TMPDIR}/standalone-install-missing"
+    mkdir -p "${tmp}"
+    cp "sillytavern-toolkit/install.sh" "${tmp}/install.sh"
+
+    bash "${tmp}/install.sh"
+  '
+
+  assert_status_eq 1
+  [[ "${output}" == *"缺少安装器模块"* ]]
 }
 
 @test "install.sh validate_ref rejects unsafe refs but allows normal branch/tag/commit" {
@@ -269,7 +294,7 @@ write_install_stubs() {
   run bash -c '
     set -euo pipefail
 
-    f="sillytavern-toolkit/install.sh"
+    f="sillytavern-toolkit/install/installers.sh"
     [[ -f "${f}" ]]
 
     # Extract install_from_proxy() body (brace-balanced) so we can validate the local files list.
@@ -334,6 +359,8 @@ write_install_stubs() {
 
     require_dir_covered "scripts/lib" "sillytavern-toolkit/scripts/lib"
     require_dir_covered "scripts/docker" "sillytavern-toolkit/scripts/docker"
+    require_dir_covered "scripts/docker/mirror" "sillytavern-toolkit/scripts/docker/mirror"
+    require_dir_covered "scripts/sources" "sillytavern-toolkit/scripts/sources"
     require_dir_covered "scripts/sillytavern" "sillytavern-toolkit/scripts/sillytavern"
   '
 
@@ -344,14 +371,18 @@ write_install_stubs() {
   run bash -c '
     set -euo pipefail
 
-    f="sillytavern-toolkit/install.sh"
-    [[ -f "${f}" ]]
+    options_f="sillytavern-toolkit/install/options.sh"
+    installers_f="sillytavern-toolkit/install/installers.sh"
+    filesystem_f="sillytavern-toolkit/install/filesystem.sh"
+    [[ -f "${options_f}" ]]
+    [[ -f "${installers_f}" ]]
+    [[ -f "${filesystem_f}" ]]
 
-    grep -F "ST_TOOLKIT_CHECKSUMS_URL 必须使用 HTTPS" "${f}" >/dev/null
-    grep -F "curl -fsSL --proto '\''=https'\'' --proto-redir '\''=https'\''" "${f}" >/dev/null
+    grep -F "ST_TOOLKIT_CHECKSUMS_URL 必须使用 HTTPS" "${options_f}" >/dev/null
+    grep -F "curl -fsSL --proto '\''=https'\'' --proto-redir '\''=https'\''" "${installers_f}" >/dev/null
 
-    grep -F "while [[ -e \"\${backup_dir}\" ]]; do" "${f}" >/dev/null
-    grep -F "backup_dir=\"\${dst_dir}.bak_\${ts}.\${n}\"" "${f}" >/dev/null
+    grep -F "while [[ -e \"\${backup_dir}\" ]]; do" "${filesystem_f}" >/dev/null
+    grep -F "backup_dir=\"\${dst_dir}.bak_\${ts}.\${n}\"" "${filesystem_f}" >/dev/null
   '
 
   assert_status_eq 0
@@ -361,7 +392,7 @@ write_install_stubs() {
   run bash -c '
     set -euo pipefail
 
-    f="sillytavern-toolkit/install.sh"
+    f="sillytavern-toolkit/install/checksum.sh"
     [[ -f "${f}" ]]
 
     grep -F "[[ \"\${hash}\" =~ ^[0-9A-Fa-f]{64}$ ]]" "${f}" >/dev/null
@@ -379,12 +410,7 @@ write_install_stubs() {
   run bash -c '
     set -euo pipefail
 
-    f="sillytavern-toolkit/install.sh"
-    [[ -f "${f}" ]]
-
-    lib="${BATS_TEST_TMPDIR}/install-lib.sh"
-    sed '\''$d'\'' "${f}" > "${lib}"
-    . "${lib}"
+    . "sillytavern-toolkit/install.sh"
 
     work="${BATS_TEST_TMPDIR}/checksum_no_newline"
     mkdir -p "${work}/root/scripts"
