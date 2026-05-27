@@ -210,18 +210,48 @@ write_install_stubs() {
   [[ "${output}" == *"用法:"* ]]
 }
 
-@test "install.sh standalone install reports missing modules clearly" {
+@test "install.sh standalone load bootstraps installer modules and honors --ref early" {
   run bash -c '
     set -euo pipefail
-    tmp="${BATS_TEST_TMPDIR}/standalone-install-missing"
+    tmp="${BATS_TEST_TMPDIR}/standalone-install-bootstrap"
+    stubs="${BATS_TEST_TMPDIR}/standalone-install-stubs"
     mkdir -p "${tmp}"
+    mkdir -p "${stubs}"
     cp "sillytavern-toolkit/install.sh" "${tmp}/install.sh"
 
-    bash "${tmp}/install.sh"
+    cat >"${stubs}/curl" <<STUB
+#!/usr/bin/env bash
+set -euo pipefail
+out=""
+url=""
+while ((\$# > 0)); do
+  case "\$1" in
+    -o) shift; out="\$1" ;;
+    https://*) url="\$1" ;;
+  esac
+  shift || true
+done
+[[ -n "\${out}" && -n "\${url}" ]]
+case "\${url}" in
+  *"/feature-ref/sillytavern-toolkit/"*) ;;
+  *) echo "unexpected bootstrap url: \${url}" >&2; exit 1 ;;
+esac
+rel="\${url#*sillytavern-toolkit/}"
+cp "sillytavern-toolkit/\${rel}" "\${out}"
+STUB
+    chmod +x "${stubs}/curl"
+
+    export PATH="${stubs}:${PATH}"
+    (
+      set -- --ref feature-ref
+      source "${tmp}/install.sh"
+      type init_env_options >/dev/null
+      type install_from_proxy >/dev/null
+      [[ "${TOOLKIT_REF}" == "feature-ref" ]]
+    )
   '
 
-  assert_status_eq 1
-  [[ "${output}" == *"缺少安装器模块"* ]]
+  assert_status_eq 0
 }
 
 @test "install.sh validate_ref rejects unsafe refs but allows normal branch/tag/commit" {

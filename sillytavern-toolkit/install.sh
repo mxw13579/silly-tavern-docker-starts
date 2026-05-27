@@ -19,7 +19,12 @@ OS_FAMILY=""
 PKG_MANAGER=""
 USE_CHINA_MIRROR=false
 
-INSTALLER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  INSTALLER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+else
+  INSTALLER_DIR="$(pwd)"
+fi
+BOOTSTRAP_INSTALL_DIR=""
 
 print_usage() {
   cat <<EOF
@@ -43,23 +48,72 @@ for __arg in "$@"; do
 done
 unset __arg
 
+__i=1
+while (( __i <= $# )); do
+  case "${!__i}" in
+    --ref)
+      __i=$((__i + 1))
+      if (( __i <= $# )); then
+        TOOLKIT_REF="${!__i}"
+      fi
+      ;;
+  esac
+  __i=$((__i + 1))
+done
+unset __i
+
 require_installer_module() {
   local module="$1"
   local path="${INSTALLER_DIR}/${module}"
 
   if [[ ! -f "${path}" ]]; then
-    if [[ -n "${C_RED:-}" && -n "${C_RESET:-}" ]]; then
-      printf '%b[ERROR]%b 缺少安装器模块: %s\n' "${C_RED}" "${C_RESET}" "${path}" >&2
-      printf '%b[ERROR]%b 请使用完整仓库目录运行 install.sh。\n' "${C_RED}" "${C_RESET}" >&2
-    else
-      printf '[ERROR] 缺少安装器模块: %s\n' "${path}" >&2
-      printf '[ERROR] 请使用完整仓库目录运行 install.sh。\n' >&2
-    fi
-    exit 1
+    bootstrap_installer_modules
+    path="${INSTALLER_DIR}/${module}"
   fi
+
+  [[ -f "${path}" ]] || {
+    printf '[ERROR] 缺少安装器模块: %s\n' "${path}" >&2
+    printf '[ERROR] 请检查网络，或使用完整仓库目录运行 install.sh。\n' >&2
+    exit 1
+  }
 
   # shellcheck source=/dev/null
   . "${path}"
+}
+
+bootstrap_installer_modules() {
+  [[ -n "${BOOTSTRAP_INSTALL_DIR}" ]] && return 0
+
+  command -v curl &>/dev/null || {
+    printf '[ERROR] 当前 install.sh 需要下载安装器模块，但未找到 curl。\n' >&2
+    printf '[ERROR] 请先安装 curl，或使用完整仓库目录运行 install.sh。\n' >&2
+    exit 1
+  }
+
+  local tmp_dir base_url module parent_dir
+  tmp_dir="$(mktemp -d)"
+  BOOTSTRAP_INSTALL_DIR="${tmp_dir}"
+  INSTALLER_DIR="${tmp_dir}"
+  base_url="https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/${TOOLKIT_REF}/${REPO_PATH}"
+
+  cleanup_bootstrap_modules() {
+    [[ -n "${BOOTSTRAP_INSTALL_DIR:-}" && -d "${BOOTSTRAP_INSTALL_DIR}" ]] && rm -rf "${BOOTSTRAP_INSTALL_DIR}"
+  }
+  trap cleanup_bootstrap_modules EXIT
+
+  for module in \
+    "install/logging.sh" \
+    "install/options.sh" \
+    "install/os.sh" \
+    "install/checksum.sh" \
+    "install/filesystem.sh" \
+    "install/installers.sh"; do
+    parent_dir="$(dirname -- "${module}")"
+    mkdir -p "${tmp_dir}/${parent_dir}"
+    curl -fsSL --proto '=https' --proto-redir '=https' \
+      --connect-timeout 10 --max-time 60 --retry 3 --retry-delay 1 \
+      "${base_url}/${module}" -o "${tmp_dir}/${module}"
+  done
 }
 
 require_installer_module "install/logging.sh"
@@ -109,6 +163,6 @@ main() {
   fi
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
   main "$@"
 fi
