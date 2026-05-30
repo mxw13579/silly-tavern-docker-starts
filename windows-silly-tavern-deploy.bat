@@ -27,6 +27,9 @@ set "ST_ZIP_DIR=%INSTALLER_DIR%\SillyTavern_zip"
 set "GIT_STATUS=未检测"
 set "NODE_STATUS=未检测"
 set "NPM_STATUS=未检测"
+set "NODE_EXE="
+set "NODE_DIR="
+set "NPM_CMD="
 set "POWERSHELL_EXE="
 set "CURL_EXE="
 
@@ -104,9 +107,11 @@ echo 日志文件: "%LOG_FILE%"
 pause
 exit /b 0
 
+
 :RepairPath
-set "PATH=%SystemRoot%\System32;%SystemRoot%;%SystemRoot%\System32\Wbem;%SystemRoot%\System32\WindowsPowerShell\v1.0;%LOCALAPPDATA%\Microsoft\WindowsApps;%ProgramFiles%\Git\cmd;%ProgramFiles%\nodejs;%PATH%"
+set "PATH=%SystemRoot%\System32;%SystemRoot%;%SystemRoot%\System32\Wbem;%SystemRoot%\System32\WindowsPowerShell\v1.0;%LOCALAPPDATA%\Microsoft\WindowsApps;%ProgramFiles%\Git\cmd;%ProgramFiles%\nodejs;%LOCALAPPDATA%\Programs\nodejs;%APPDATA%\npm;%PATH%"
 exit /b 0
+
 
 :FindTools
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "POWERSHELL_EXE=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
@@ -123,6 +128,7 @@ if not defined CURL_EXE (
 
 exit /b 0
 
+
 :Fail
 echo.
 echo 错误: %~1
@@ -133,6 +139,7 @@ call :TailLog
 echo -------------------------------------------------
 echo.
 goto :Abort
+
 
 :Abort
 echo 脚本已停止。
@@ -145,6 +152,7 @@ echo.
 pause
 exit /b 1
 
+
 :TailLog
 if defined POWERSHELL_EXE (
     "%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -Command "Get-Content -LiteralPath '%LOG_FILE%' -Tail 80 -Encoding UTF8" 2>nul
@@ -152,6 +160,7 @@ if defined POWERSHELL_EXE (
     type "%LOG_FILE%"
 )
 exit /b 0
+
 
 :RefreshPath
 call :RepairPath
@@ -165,9 +174,12 @@ for /f "tokens=2,*" %%A in ('reg query "HKCU\Environment" /v Path 2^>nul') do se
 if defined MACHINE_PATH set "PATH=%SystemRoot%\System32;%SystemRoot%;%SystemRoot%\System32\Wbem;%SystemRoot%\System32\WindowsPowerShell\v1.0;%MACHINE_PATH%;%USER_PATH%"
 if exist "%ProgramFiles%\Git\cmd\git.exe" set "PATH=%ProgramFiles%\Git\cmd;%PATH%"
 if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%"
+if exist "%LOCALAPPDATA%\Programs\nodejs\node.exe" set "PATH=%LOCALAPPDATA%\Programs\nodejs;%PATH%"
+if exist "%APPDATA%\npm\npm.cmd" set "PATH=%APPDATA%\npm;%PATH%"
 if exist "%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe" set "PATH=%LOCALAPPDATA%\Microsoft\WindowsApps;%PATH%"
 
 exit /b 0
+
 
 :DownloadFile
 set "DOWNLOAD_URL=%~1"
@@ -229,6 +241,7 @@ if defined CURL_EXE (
 echo 未找到 PowerShell 或 curl，无法自动下载。>> "%LOG_FILE%"
 exit /b 1
 
+
 :InstallByWinget
 set "WINGET_ID=%~1"
 
@@ -244,9 +257,8 @@ echo 使用 winget 安装: %WINGET_ID%
 echo 使用 winget 安装: %WINGET_ID%>> "%LOG_FILE%"
 
 winget install --id "%WINGET_ID%" -e --silent --accept-package-agreements --accept-source-agreements >> "%LOG_FILE%" 2>&1
-if errorlevel 1 exit /b 1
+exit /b %ERRORLEVEL%
 
-exit /b 0
 
 :EnsureGit
 call :RefreshPath
@@ -287,15 +299,52 @@ if errorlevel 1 exit /b 1
 for /f "tokens=*" %%i in ('git --version 2^>nul') do set "GIT_STATUS=%%i"
 exit /b 0
 
+
 :DetectNode
 set "NODE_STATUS="
+set "NODE_EXE="
+set "NODE_DIR="
 
-where node >nul 2>&1
-if errorlevel 1 exit /b 1
+for /f "delims=" %%i in ('where node 2^>nul') do (
+    if not defined NODE_EXE set "NODE_EXE=%%i"
+)
 
-for /f "tokens=*" %%i in ('node --version 2^>nul') do set "NODE_STATUS=%%i"
+if not defined NODE_EXE if exist "%ProgramFiles%\nodejs\node.exe" set "NODE_EXE=%ProgramFiles%\nodejs\node.exe"
+if not defined NODE_EXE if exist "%ProgramFiles(x86)%\nodejs\node.exe" set "NODE_EXE=%ProgramFiles(x86)%\nodejs\node.exe"
+if not defined NODE_EXE if exist "%LOCALAPPDATA%\Programs\nodejs\node.exe" set "NODE_EXE=%LOCALAPPDATA%\Programs\nodejs\node.exe"
+
+if not defined NODE_EXE (
+    for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\Node.js" /v InstallPath 2^>nul') do (
+        if not defined NODE_EXE if exist "%%B\node.exe" set "NODE_EXE=%%B\node.exe"
+    )
+)
+
+if not defined NODE_EXE (
+    for /f "tokens=2,*" %%A in ('reg query "HKCU\SOFTWARE\Node.js" /v InstallPath 2^>nul') do (
+        if not defined NODE_EXE if exist "%%B\node.exe" set "NODE_EXE=%%B\node.exe"
+    )
+)
+
+if not defined NODE_EXE (
+    for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\WOW6432Node\Node.js" /v InstallPath 2^>nul') do (
+        if not defined NODE_EXE if exist "%%B\node.exe" set "NODE_EXE=%%B\node.exe"
+    )
+)
+
+if not defined NODE_EXE exit /b 1
+
+for %%F in ("%NODE_EXE%") do set "NODE_DIR=%%~dpF"
+
+if defined NODE_DIR set "PATH=%NODE_DIR%;%NODE_DIR%node_modules\npm\bin;%APPDATA%\npm;%PATH%"
+
+for /f "tokens=*" %%i in ('"%NODE_EXE%" --version 2^>nul') do set "NODE_STATUS=%%i"
 
 if not defined NODE_STATUS exit /b 1
+
+echo 检测到 Node.js: %NODE_EXE%
+echo 检测到 Node.js: %NODE_EXE%>> "%LOG_FILE%"
+echo Node.js 版本: %NODE_STATUS%
+echo Node.js 版本: %NODE_STATUS%>> "%LOG_FILE%"
 
 exit /b 0
 
@@ -366,21 +415,50 @@ if "%MSI_EXIT_CODE%"=="3010" (
     echo MSI 安装后仍未检测到 node.exe。>> "%LOG_FILE%"
 )
 
-echo 可能原因：旧版 Node.js 残留、安装器 1603、系统需要重启、杀毒软件拦截。
-echo 可能原因：旧版 Node.js 残留、安装器 1603、系统需要重启、杀毒软件拦截。>> "%LOG_FILE%"
+echo 可能原因：旧版 Node.js 残留、PATH 未写入、系统需要重启、杀毒软件拦截。
+echo 可能原因：旧版 Node.js 残留、PATH 未写入、系统需要重启、杀毒软件拦截。>> "%LOG_FILE%"
 
 exit /b 1
+
+
+:DetectNpm
+set "NPM_STATUS="
+set "NPM_CMD="
+
+for /f "delims=" %%i in ('where npm.cmd 2^>nul') do (
+    if not defined NPM_CMD set "NPM_CMD=%%i"
+)
+
+if not defined NPM_CMD if defined NODE_DIR if exist "%NODE_DIR%npm.cmd" set "NPM_CMD=%NODE_DIR%npm.cmd"
+if not defined NPM_CMD if exist "%ProgramFiles%\nodejs\npm.cmd" set "NPM_CMD=%ProgramFiles%\nodejs\npm.cmd"
+if not defined NPM_CMD if exist "%ProgramFiles(x86)%\nodejs\npm.cmd" set "NPM_CMD=%ProgramFiles(x86)%\nodejs\npm.cmd"
+if not defined NPM_CMD if exist "%LOCALAPPDATA%\Programs\nodejs\npm.cmd" set "NPM_CMD=%LOCALAPPDATA%\Programs\nodejs\npm.cmd"
+
+if not defined NPM_CMD exit /b 1
+
+for /f "tokens=*" %%i in ('call "%NPM_CMD%" --version 2^>nul') do set "NPM_STATUS=%%i"
+
+if not defined NPM_STATUS exit /b 1
+
+echo 检测到 npm: %NPM_CMD%
+echo 检测到 npm: %NPM_CMD%>> "%LOG_FILE%"
+echo npm 版本: %NPM_STATUS%
+echo npm 版本: %NPM_STATUS%>> "%LOG_FILE%"
+
+exit /b 0
+
 
 :EnsureNpm
 call :RefreshPath
 
-where npm >nul 2>&1
+call :DetectNode
 if errorlevel 1 exit /b 1
 
-for /f "tokens=*" %%i in ('call npm --version 2^>nul') do set "NPM_STATUS=%%i"
+call :DetectNpm
+if errorlevel 1 exit /b 1
 
-if "%NPM_STATUS%"=="" exit /b 1
 exit /b 0
+
 
 :SetupProject
 cd /d "%CURRENT_DIR%"
@@ -454,6 +532,7 @@ if errorlevel 1 exit /b 1
 if not exist "%PROJECT_DIR%\start.bat" exit /b 1
 
 exit /b 0
+
 
 :StartProject
 if not exist "%PROJECT_DIR%\start.bat" (
