@@ -287,44 +287,89 @@ if errorlevel 1 exit /b 1
 for /f "tokens=*" %%i in ('git --version 2^>nul') do set "GIT_STATUS=%%i"
 exit /b 0
 
-:EnsureNode
-call :RefreshPath
-
-where node >nul 2>&1
-if not errorlevel 1 (
-    for /f "tokens=*" %%i in ('node --version 2^>nul') do set "NODE_STATUS=%%i"
-    exit /b 0
-)
-
-echo 未检测到 Node.js，尝试 winget 安装...
-echo 未检测到 Node.js，尝试 winget 安装...>> "%LOG_FILE%"
-
-call :InstallByWinget "OpenJS.NodeJS.LTS"
-if errorlevel 1 (
-    echo winget 安装 Node.js 失败，改用 MSI 安装包方式。
-    echo winget 安装 Node.js 失败，改用 MSI 安装包方式。>> "%LOG_FILE%"
-
-    if exist "%CURRENT_DIR%\NodeJS-Setup.msi" (
-        copy /y "%CURRENT_DIR%\NodeJS-Setup.msi" "%NODE_INSTALLER%" >nul
-    ) else if exist "%CURRENT_DIR%\node-v20.11.1-x64.msi" (
-        copy /y "%CURRENT_DIR%\node-v20.11.1-x64.msi" "%NODE_INSTALLER%" >nul
-    ) else (
-        call :DownloadFile "%NODE_URL%" "%NODE_INSTALLER%"
-        if errorlevel 1 exit /b 1
-    )
-
-    echo 正在静默安装 Node.js...
-    echo 正在静默安装 Node.js...>> "%LOG_FILE%"
-    msiexec /i "%NODE_INSTALLER%" /qn /norestart >> "%LOG_FILE%" 2>&1
-)
-
-call :RefreshPath
+:DetectNode
+set "NODE_STATUS="
 
 where node >nul 2>&1
 if errorlevel 1 exit /b 1
 
 for /f "tokens=*" %%i in ('node --version 2^>nul') do set "NODE_STATUS=%%i"
+
+if not defined NODE_STATUS exit /b 1
+
 exit /b 0
+
+
+:EnsureNode
+call :RefreshPath
+
+call :DetectNode
+if not errorlevel 1 exit /b 0
+
+echo 未检测到 Node.js，尝试 winget 安装...
+echo 未检测到 Node.js，尝试 winget 安装...>> "%LOG_FILE%"
+
+call :InstallByWinget "OpenJS.NodeJS.LTS"
+set "WINGET_EXIT_CODE=%ERRORLEVEL%"
+
+echo winget 安装命令返回码: %WINGET_EXIT_CODE%
+echo winget 安装命令返回码: %WINGET_EXIT_CODE%>> "%LOG_FILE%"
+
+echo winget 安装结束，重新检测 Node.js...
+echo winget 安装结束，重新检测 Node.js...>> "%LOG_FILE%"
+
+call :RefreshPath
+
+call :DetectNode
+if not errorlevel 1 exit /b 0
+
+echo winget 后仍未检测到 Node.js，改用 MSI 安装包方式。
+echo winget 后仍未检测到 Node.js，改用 MSI 安装包方式。>> "%LOG_FILE%"
+
+if exist "%CURRENT_DIR%\NodeJS-Setup.msi" (
+    copy /y "%CURRENT_DIR%\NodeJS-Setup.msi" "%NODE_INSTALLER%" >nul
+) else if exist "%CURRENT_DIR%\node-v20.11.1-x64.msi" (
+    copy /y "%CURRENT_DIR%\node-v20.11.1-x64.msi" "%NODE_INSTALLER%" >nul
+) else (
+    call :DownloadFile "%NODE_URL%" "%NODE_INSTALLER%"
+    if errorlevel 1 exit /b 1
+)
+
+echo 正在静默安装 Node.js MSI...
+echo 正在静默安装 Node.js MSI...>> "%LOG_FILE%"
+
+msiexec /i "%NODE_INSTALLER%" /qn /norestart ADDLOCAL=ALL >> "%LOG_FILE%" 2>&1
+set "MSI_EXIT_CODE=%ERRORLEVEL%"
+
+echo Node.js MSI 安装返回码: %MSI_EXIT_CODE%
+echo Node.js MSI 安装返回码: %MSI_EXIT_CODE%>> "%LOG_FILE%"
+
+if "%MSI_EXIT_CODE%"=="3010" (
+    echo Node.js MSI 安装成功，但系统提示需要重启。
+    echo Node.js MSI 安装成功，但系统提示需要重启。>> "%LOG_FILE%"
+) else if not "%MSI_EXIT_CODE%"=="0" (
+    echo Node.js MSI 安装失败，返回码: %MSI_EXIT_CODE%
+    echo Node.js MSI 安装失败，返回码: %MSI_EXIT_CODE%>> "%LOG_FILE%"
+    exit /b 1
+)
+
+call :RefreshPath
+
+call :DetectNode
+if not errorlevel 1 exit /b 0
+
+if "%MSI_EXIT_CODE%"=="3010" (
+    echo Node.js 已安装，但当前会话仍无法检测到 node.exe，可能需要重启后重新运行脚本。
+    echo Node.js 已安装，但当前会话仍无法检测到 node.exe，可能需要重启后重新运行脚本。>> "%LOG_FILE%"
+) else (
+    echo MSI 安装后仍未检测到 node.exe。
+    echo MSI 安装后仍未检测到 node.exe。>> "%LOG_FILE%"
+)
+
+echo 可能原因：旧版 Node.js 残留、安装器 1603、系统需要重启、杀毒软件拦截。
+echo 可能原因：旧版 Node.js 残留、安装器 1603、系统需要重启、杀毒软件拦截。>> "%LOG_FILE%"
+
+exit /b 1
 
 :EnsureNpm
 call :RefreshPath
