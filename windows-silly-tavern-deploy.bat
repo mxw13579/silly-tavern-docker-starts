@@ -148,6 +148,7 @@ echo 1. Windows PowerShell 是否存在。
 echo 2. 系统 PATH 是否损坏。
 echo 3. 杀毒软件是否拦截 Git / Node / clone。
 echo 4. 网络是否能访问 GitHub / nodejs.org。
+echo 5. 如果 Node.js 反复 1603，请先卸载 Node.js 并重启。
 echo.
 pause
 exit /b 1
@@ -304,6 +305,10 @@ exit /b 0
 set "NODE_STATUS="
 set "NODE_EXE="
 set "NODE_DIR="
+set "NODE_REGISTERED_INFO="
+set "NODE_DETECT_FILE=%INSTALLER_DIR%\node-detect.txt"
+
+if exist "%NODE_DETECT_FILE%" del /f /q "%NODE_DETECT_FILE%" >nul 2>&1
 
 for /f "delims=" %%i in ('where node 2^>nul') do (
     if not defined NODE_EXE set "NODE_EXE=%%i"
@@ -313,33 +318,63 @@ if not defined NODE_EXE if exist "%ProgramFiles%\nodejs\node.exe" set "NODE_EXE=
 if not defined NODE_EXE if exist "%ProgramFiles(x86)%\nodejs\node.exe" set "NODE_EXE=%ProgramFiles(x86)%\nodejs\node.exe"
 if not defined NODE_EXE if exist "%LOCALAPPDATA%\Programs\nodejs\node.exe" set "NODE_EXE=%LOCALAPPDATA%\Programs\nodejs\node.exe"
 
-if not defined NODE_EXE (
-    for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\Node.js" /v InstallPath 2^>nul') do (
-        if not defined NODE_EXE if exist "%%B\node.exe" set "NODE_EXE=%%B\node.exe"
+if defined NODE_EXE goto :VerifyNodeExe
+
+if not defined POWERSHELL_EXE goto :NodeNoPowerShellDetect
+
+"%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference='SilentlyContinue';" ^
+  "$out=$env:NODE_DETECT_FILE;" ^
+  "$candidates=@();" ^
+  "$cmd=Get-Command node -ErrorAction SilentlyContinue;" ^
+  "if($cmd){$candidates += $cmd.Source};" ^
+  "$pf=[Environment]::GetEnvironmentVariable('ProgramFiles');" ^
+  "$pf86=[Environment]::GetEnvironmentVariable('ProgramFiles(x86)');" ^
+  "$la=[Environment]::GetEnvironmentVariable('LOCALAPPDATA');" ^
+  "if($pf){$candidates += Join-Path $pf 'nodejs\node.exe'};" ^
+  "if($pf86){$candidates += Join-Path $pf86 'nodejs\node.exe'};" ^
+  "if($la){$candidates += Join-Path $la 'Programs\nodejs\node.exe'};" ^
+  "$roots=@('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*','HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*');" ^
+  "$apps=Get-ItemProperty $roots | Where-Object { $_.DisplayName -like '*Node.js*' -or $_.Publisher -like '*OpenJS*' };" ^
+  "foreach($a in $apps){ if($a.InstallLocation){ $candidates += Join-Path $a.InstallLocation 'node.exe' } };" ^
+  "$exe=$candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1;" ^
+  "if($exe){ Set-Content -LiteralPath $out -Value ('EXE=' + $exe) -Encoding ASCII; exit 0 };" ^
+  "if($apps){ $a=$apps | Select-Object -First 1; Set-Content -LiteralPath $out -Value ('REGISTERED=' + $a.DisplayName + ' ' + $a.DisplayVersion + ' InstallLocation=' + $a.InstallLocation) -Encoding ASCII; exit 2 };" ^
+  "exit 1" >nul 2>&1
+
+if exist "%NODE_DETECT_FILE%" (
+    for /f "usebackq tokens=1,* delims==" %%A in ("%NODE_DETECT_FILE%") do (
+        if /i "%%A"=="EXE" set "NODE_EXE=%%B"
+        if /i "%%A"=="REGISTERED" set "NODE_REGISTERED_INFO=%%B"
     )
 )
 
-if not defined NODE_EXE (
-    for /f "tokens=2,*" %%A in ('reg query "HKCU\SOFTWARE\Node.js" /v InstallPath 2^>nul') do (
-        if not defined NODE_EXE if exist "%%B\node.exe" set "NODE_EXE=%%B\node.exe"
-    )
+:NodeNoPowerShellDetect
+if defined NODE_EXE goto :VerifyNodeExe
+
+if defined NODE_REGISTERED_INFO (
+    echo 检测到 Node.js 安装记录，但未找到可用 node.exe。
+    echo 检测到 Node.js 安装记录，但未找到可用 node.exe。>> "%LOG_FILE%"
+    echo 安装记录: %NODE_REGISTERED_INFO%
+    echo 安装记录: %NODE_REGISTERED_INFO%>> "%LOG_FILE%"
+    exit /b 2
 )
 
-if not defined NODE_EXE (
-    for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\WOW6432Node\Node.js" /v InstallPath 2^>nul') do (
-        if not defined NODE_EXE if exist "%%B\node.exe" set "NODE_EXE=%%B\node.exe"
-    )
-)
+exit /b 1
 
-if not defined NODE_EXE exit /b 1
 
+:VerifyNodeExe
 for %%F in ("%NODE_EXE%") do set "NODE_DIR=%%~dpF"
 
 if defined NODE_DIR set "PATH=%NODE_DIR%;%NODE_DIR%node_modules\npm\bin;%APPDATA%\npm;%PATH%"
 
 for /f "tokens=*" %%i in ('"%NODE_EXE%" --version 2^>nul') do set "NODE_STATUS=%%i"
 
-if not defined NODE_STATUS exit /b 1
+if not defined NODE_STATUS (
+    echo 找到 node.exe，但无法执行: %NODE_EXE%
+    echo 找到 node.exe，但无法执行: %NODE_EXE%>> "%LOG_FILE%"
+    exit /b 1
+)
 
 echo 检测到 Node.js: %NODE_EXE%
 echo 检测到 Node.js: %NODE_EXE%>> "%LOG_FILE%"
@@ -353,7 +388,27 @@ exit /b 0
 call :RefreshPath
 
 call :DetectNode
-if not errorlevel 1 exit /b 0
+set "NODE_DETECT_CODE=%ERRORLEVEL%"
+
+if "%NODE_DETECT_CODE%"=="0" exit /b 0
+
+if "%NODE_DETECT_CODE%"=="2" (
+    echo.
+    echo 系统里已有 Node.js 安装记录或残留，但脚本找不到可用 node.exe。
+    echo 所以继续安装会反复触发 1603。
+    echo.
+    echo 请先清理 Node.js 后重新运行脚本：
+    echo 1. 设置 - 应用 - 已安装的应用 - 卸载 Node.js
+    echo 2. 或 控制面板 - 程序和功能 - 卸载 Node.js
+    echo 3. 或 管理员终端执行：winget uninstall --id OpenJS.NodeJS.LTS -e
+    echo.
+    echo 清理后建议重启 Windows。
+    echo.
+    echo 系统里已有 Node.js 安装记录或残留，但脚本找不到可用 node.exe。>> "%LOG_FILE%"
+    echo 继续安装会反复触发 1603。>> "%LOG_FILE%"
+    echo 请卸载 Node.js 后重启，再重新运行脚本。>> "%LOG_FILE%"
+    exit /b 1
+)
 
 echo 未检测到 Node.js，尝试 winget 安装...
 echo 未检测到 Node.js，尝试 winget 安装...>> "%LOG_FILE%"
@@ -370,7 +425,20 @@ echo winget 安装结束，重新检测 Node.js...>> "%LOG_FILE%"
 call :RefreshPath
 
 call :DetectNode
-if not errorlevel 1 exit /b 0
+set "NODE_DETECT_CODE=%ERRORLEVEL%"
+
+if "%NODE_DETECT_CODE%"=="0" exit /b 0
+
+if "%NODE_DETECT_CODE%"=="2" (
+    echo.
+    echo winget 后检测到 Node.js 安装记录，但 node.exe 不可用。
+    echo 为避免继续触发 1603，脚本不会再尝试 MSI 安装。
+    echo 请卸载 Node.js，重启 Windows 后重新运行脚本。
+    echo.
+    echo winget 后检测到 Node.js 安装记录，但 node.exe 不可用。>> "%LOG_FILE%"
+    echo 为避免继续触发 1603，跳过 MSI fallback。>> "%LOG_FILE%"
+    exit /b 1
+)
 
 echo winget 后仍未检测到 Node.js，改用 MSI 安装包方式。
 echo winget 后仍未检测到 Node.js，改用 MSI 安装包方式。>> "%LOG_FILE%"
@@ -399,6 +467,10 @@ if "%MSI_EXIT_CODE%"=="3010" (
 ) else if not "%MSI_EXIT_CODE%"=="0" (
     echo Node.js MSI 安装失败，返回码: %MSI_EXIT_CODE%
     echo Node.js MSI 安装失败，返回码: %MSI_EXIT_CODE%>> "%LOG_FILE%"
+    echo 如果返回码是 1603，通常表示系统存在 Node.js 旧安装、残留安装记录、降级冲突或 Windows Installer 状态异常。
+    echo 如果返回码是 1603，通常表示系统存在 Node.js 旧安装、残留安装记录、降级冲突或 Windows Installer 状态异常。>> "%LOG_FILE%"
+    echo 请卸载 Node.js，重启 Windows 后重新运行脚本。
+    echo 请卸载 Node.js，重启 Windows 后重新运行脚本。>> "%LOG_FILE%"
     exit /b 1
 )
 
@@ -407,16 +479,10 @@ call :RefreshPath
 call :DetectNode
 if not errorlevel 1 exit /b 0
 
-if "%MSI_EXIT_CODE%"=="3010" (
-    echo Node.js 已安装，但当前会话仍无法检测到 node.exe，可能需要重启后重新运行脚本。
-    echo Node.js 已安装，但当前会话仍无法检测到 node.exe，可能需要重启后重新运行脚本。>> "%LOG_FILE%"
-) else (
-    echo MSI 安装后仍未检测到 node.exe。
-    echo MSI 安装后仍未检测到 node.exe。>> "%LOG_FILE%"
-)
-
-echo 可能原因：旧版 Node.js 残留、PATH 未写入、系统需要重启、杀毒软件拦截。
-echo 可能原因：旧版 Node.js 残留、PATH 未写入、系统需要重启、杀毒软件拦截。>> "%LOG_FILE%"
+echo MSI 安装后仍未检测到 node.exe。
+echo MSI 安装后仍未检测到 node.exe。>> "%LOG_FILE%"
+echo 请重启 Windows 后重新运行脚本。
+echo 请重启 Windows 后重新运行脚本。>> "%LOG_FILE%"
 
 exit /b 1
 
