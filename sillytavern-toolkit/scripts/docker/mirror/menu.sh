@@ -6,7 +6,7 @@ print_docker_mirror_menu_header() {
 
   clear || true
   echo "${DOCKER_MIRROR_MENU_SEP}"
-  echo "SillyTavern Docker 工具箱 | FuFu API | 群 1019836466"
+  echo "SillyTavern Docker 工具箱 | 本酒馆安装脚本由FuFu提供 | 交流反馈群 | 878941467"
   echo "${DOCKER_MIRROR_MENU_SEP}"
   echo "${title}"
   echo "${description}"

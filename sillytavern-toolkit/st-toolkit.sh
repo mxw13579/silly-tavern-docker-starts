@@ -43,12 +43,13 @@ print_centered_line() {
 print_home_brand_header() {
   print_sep "="
   print_centered_line "SillyTavern Docker 工具箱"
-  print_centered_line "FuFu API | 群 1019836466"
+  print_centered_line "本酒馆安装脚本由FuFu提供"
+  print_centered_line "交流反馈群 | 878941467"
   print_sep "="
 }
 
 print_compact_brand_header() {
-  echo "SillyTavern Docker 工具箱 | FuFu API | 群 1019836466"
+  echo "SillyTavern Docker 工具箱 | 本酒馆安装脚本由FuFu提供 | 交流反馈群 | 878941467"
 }
 
 print_menu_header() {

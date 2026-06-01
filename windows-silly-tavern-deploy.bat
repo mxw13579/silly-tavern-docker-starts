@@ -70,6 +70,8 @@ if not exist "%INSTALLER_DIR%" mkdir "%INSTALLER_DIR%" >nul 2>&1
 
 echo ================================================== > "%LOG_FILE%"
 echo SillyTavern Windows 国内加速安装日志 >> "%LOG_FILE%"
+echo 本酒馆安装脚本由FuFu提供 >> "%LOG_FILE%"
+echo 交流反馈群 | 878941467 >> "%LOG_FILE%"
 echo 时间: %date% %time% >> "%LOG_FILE%"
 echo 当前目录: "%CURRENT_DIR%" >> "%LOG_FILE%"
 echo 安装包目录: "%INSTALLER_DIR%" >> "%LOG_FILE%"
@@ -86,6 +88,8 @@ call :FindTools
 
 echo 当前工作目录: "%CURRENT_DIR%"
 echo 日志文件: "%LOG_FILE%"
+echo 本酒馆安装脚本由FuFu提供
+echo 交流反馈群 | 878941467
 echo PowerShell: "%POWERSHELL_EXE%"
 echo curl: "%CURL_EXE%"
 echo.

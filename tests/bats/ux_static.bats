@@ -68,7 +68,8 @@ load "../helpers/stubs.bash"
     grep -Eq "^(function[[:space:]]+)?(print|render|show)_(home_)?(brand|toolkit)_(header|banner)[[:space:]]*(\\(\\))?[[:space:]]*\\{" "${f}" >/dev/null
     grep -Eq "^(function[[:space:]]+)?print_sep[[:space:]]*(\\(\\))?[[:space:]]*\\{" "${f}" >/dev/null
     grep -F "SillyTavern Docker 工具箱" "${f}" >/dev/null
-    grep -F "FuFu API | 群 1019836466" "${f}" >/dev/null
+    grep -F "本酒馆安装脚本由FuFu提供" "${f}" >/dev/null
+    grep -F "交流反馈群 | 878941467" "${f}" >/dev/null
     grep -F "==========================================================" "${f}" >/dev/null
   '
 
@@ -79,7 +80,7 @@ load "../helpers/stubs.bash"
   run bash -c '
     set -euo pipefail
     f="sillytavern-toolkit/st-toolkit.sh"
-    grep -F "SillyTavern Docker 工具箱 | FuFu API | 群 1019836466" "${f}" >/dev/null
+    grep -F "SillyTavern Docker 工具箱 | 本酒馆安装脚本由FuFu提供 | 交流反馈群 | 878941467" "${f}" >/dev/null
     grep -A8 "print_menu_header()" "${f}" | grep -F "print_sep" >/dev/null
     grep -A8 "print_menu_header()" "${f}" | grep -F "print_compact_brand_header" >/dev/null
   '
@@ -92,8 +93,9 @@ load "../helpers/stubs.bash"
     set -euo pipefail
     files=(sillytavern-toolkit/scripts/docker/mirror.sh sillytavern-toolkit/scripts/docker/mirror/*.sh)
     grep -F "print_docker_mirror_menu_header()" "${files[@]}" >/dev/null
-    grep -F "FuFu API" "${files[@]}" >/dev/null
-    grep -F "1019836466" "${files[@]}" >/dev/null
+    grep -F "本酒馆安装脚本由FuFu提供" "${files[@]}" >/dev/null
+    grep -F "交流反馈群" "${files[@]}" >/dev/null
+    grep -F "878941467" "${files[@]}" >/dev/null
     grep -F "DOCKER_MIRROR_MENU_SEP" "${files[@]}" >/dev/null
     grep -F "print_docker_mirror_menu_header" "${files[@]}" >/dev/null
     grep -F "Docker Hub" "${files[@]}" >/dev/null
