@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title SillyTavern Windows 安装脚本
+title SillyTavern Windows 国内加速安装脚本
 setlocal EnableExtensions DisableDelayedExpansion
 
 if /i not "%~1"=="--inner" (
@@ -14,10 +14,43 @@ set "CURRENT_DIR=%cd%"
 set "PROJECT_DIR=%CURRENT_DIR%\SillyTavern"
 set "INSTALLER_DIR=%CURRENT_DIR%\_installers"
 set "LOG_FILE=%CURRENT_DIR%\sillytavern-windows-install.log"
+set "INSTALLER_NPMRC=%INSTALLER_DIR%\npmrc"
 
-set "GIT_URL=https://github.com/git-for-windows/git/releases/download/v2.45.2.windows.1/Git-2.45.2-64-bit.exe"
-set "NODE_URL=https://nodejs.org/dist/v20.11.1/node-v20.11.1-x64.msi"
+set "GIT_VERSION=2.54.0"
+set "GIT_RELEASE_VERSION=%GIT_VERSION%.windows.1"
+set "NODE_VERSION=24.16.0"
+set "GIT_URL=https://npmmirror.com/mirrors/git-for-windows/v%GIT_RELEASE_VERSION%/Git-%GIT_VERSION%-64-bit.exe"
+set "NODE_URL=https://npmmirror.com/mirrors/node/v%NODE_VERSION%/node-v%NODE_VERSION%-x64.msi"
+set "NPM_REGISTRY=https://registry.npmmirror.com"
+
+set "ST_GIT_URL=https://github.com/SillyTavern/SillyTavern.git"
+set "ST_RELEASE_HEAD_API=https://api.github.com/repos/SillyTavern/SillyTavern/git/ref/heads/release"
+set "ST_GIT_URL_PROXY_1=https://gh-proxy.com/https://github.com/SillyTavern/SillyTavern.git"
+set "ST_GIT_URL_PROXY_2=https://hubp.llkk.cc/https://github.com/SillyTavern/SillyTavern.git"
+
 set "ST_ZIP_URL=https://github.com/SillyTavern/SillyTavern/archive/refs/heads/release.zip"
+set "ST_ZIP_URL_PROXY_1=https://gh-proxy.com/https://github.com/SillyTavern/SillyTavern/archive/refs/heads/release.zip"
+set "ST_ZIP_URL_PROXY_2=https://gh.llkk.cc/https://github.com/SillyTavern/SillyTavern/archive/refs/heads/release.zip"
+
+if not defined ALLOW_THIRD_PARTY_PROXY set "ALLOW_THIRD_PARTY_PROXY=ASK"
+if not defined REQUIRE_PROXY_COMMIT_VERIFY set "REQUIRE_PROXY_COMMIT_VERIFY=1"
+if not defined REQUIRE_INSTALLER_SHA256 set "REQUIRE_INSTALLER_SHA256=0"
+if not defined NO_INTERACTIVE set "NO_INTERACTIVE=0"
+if not defined EXPECTED_ST_RELEASE_HEAD set "EXPECTED_ST_RELEASE_HEAD="
+
+if not defined GIT_INSTALLER_SHA256 set "GIT_INSTALLER_SHA256="
+if not defined NODE_INSTALLER_SHA256 set "NODE_INSTALLER_SHA256="
+if not defined GIT_SIGNER_THUMBPRINTS set "GIT_SIGNER_THUMBPRINTS="
+if not defined NODE_SIGNER_THUMBPRINTS set "NODE_SIGNER_THUMBPRINTS="
+
+set "THIRD_PARTY_PROXY_CONFIRMED=0"
+set "THIRD_PARTY_PROXY_PROMPTED=0"
+set "OFFICIAL_RELEASE_HEAD="
+set "FETCH_SOURCE_USED="
+set "PROJECT_SOURCE_USED=未确定"
+
+set "GIT_LOW_SPEED_LIMIT=1"
+set "GIT_LOW_SPEED_TIME=120"
 
 set "GIT_INSTALLER=%INSTALLER_DIR%\Git-Setup.exe"
 set "NODE_INSTALLER=%INSTALLER_DIR%\NodeJS-Setup.msi"
@@ -36,10 +69,15 @@ set "CURL_EXE="
 if not exist "%INSTALLER_DIR%" mkdir "%INSTALLER_DIR%" >nul 2>&1
 
 echo ================================================== > "%LOG_FILE%"
-echo SillyTavern Windows 安装日志 >> "%LOG_FILE%"
+echo SillyTavern Windows 国内加速安装日志 >> "%LOG_FILE%"
 echo 时间: %date% %time% >> "%LOG_FILE%"
 echo 当前目录: "%CURRENT_DIR%" >> "%LOG_FILE%"
 echo 安装包目录: "%INSTALLER_DIR%" >> "%LOG_FILE%"
+echo ALLOW_THIRD_PARTY_PROXY=%ALLOW_THIRD_PARTY_PROXY% >> "%LOG_FILE%"
+echo REQUIRE_PROXY_COMMIT_VERIFY=%REQUIRE_PROXY_COMMIT_VERIFY% >> "%LOG_FILE%"
+echo REQUIRE_INSTALLER_SHA256=%REQUIRE_INSTALLER_SHA256% >> "%LOG_FILE%"
+echo NO_INTERACTIVE=%NO_INTERACTIVE% >> "%LOG_FILE%"
+echo EXPECTED_ST_RELEASE_HEAD=%EXPECTED_ST_RELEASE_HEAD% >> "%LOG_FILE%"
 echo ================================================== >> "%LOG_FILE%"
 echo. >> "%LOG_FILE%"
 
@@ -51,10 +89,24 @@ echo 日志文件: "%LOG_FILE%"
 echo PowerShell: "%POWERSHELL_EXE%"
 echo curl: "%CURL_EXE%"
 echo.
+echo 警告：第三方 GitHub 代理不是官方服务，仅建议用于公开仓库。
+echo 若 REQUIRE_PROXY_COMMIT_VERIFY=1，代理 clone 必须和官方 release HEAD 校验一致。
+echo GitHub 不可达但需要代理校验时，可预设 EXPECTED_ST_RELEASE_HEAD。
+echo 无人值守禁用代理：set ALLOW_THIRD_PARTY_PROXY=0
+echo 无人值守启用代理：set ALLOW_THIRD_PARTY_PROXY=1
+echo.
 
 echo 当前工作目录: "%CURRENT_DIR%" >> "%LOG_FILE%"
 echo PowerShell: "%POWERSHELL_EXE%" >> "%LOG_FILE%"
 echo curl: "%CURL_EXE%" >> "%LOG_FILE%"
+
+if /i "%REQUIRE_INSTALLER_SHA256%"=="0" (
+    echo 警告：REQUIRE_INSTALLER_SHA256=0，安装包未启用固定 SHA256 校验。
+    echo 建议设置 GIT_INSTALLER_SHA256 / NODE_INSTALLER_SHA256 并启用 REQUIRE_INSTALLER_SHA256=1。
+    echo.
+    echo 警告：REQUIRE_INSTALLER_SHA256=0，安装包未启用固定 SHA256 校验。>> "%LOG_FILE%"
+    echo 建议设置 GIT_INSTALLER_SHA256 / NODE_INSTALLER_SHA256 并启用 REQUIRE_INSTALLER_SHA256=1。>> "%LOG_FILE%"
+)
 
 net session >nul 2>&1
 if errorlevel 1 call :Fail "请右键此脚本，选择【以管理员身份运行】。"
@@ -86,6 +138,8 @@ echo [3/4] 检测 npm 环境...
 echo [3/4] 检测 npm 环境...>> "%LOG_FILE%"
 call :EnsureNpm
 if errorlevel 1 call :Fail "npm 不可用，请重新安装 Node.js。"
+call :WriteInstallerNpmrc
+if errorlevel 1 call :Fail "npm 镜像配置文件写入失败。"
 echo npm 状态: %NPM_STATUS%
 echo npm 状态: %NPM_STATUS%>> "%LOG_FILE%"
 echo.
@@ -95,8 +149,11 @@ echo [4/4] 下载 / 更新 SillyTavern...
 echo [4/4] 下载 / 更新 SillyTavern...>> "%LOG_FILE%"
 call :SetupProject
 if errorlevel 1 call :Fail "项目下载或更新失败。"
-echo.
 
+echo 最终项目来源: %PROJECT_SOURCE_USED%
+echo 最终项目来源: %PROJECT_SOURCE_USED%>> "%LOG_FILE%"
+
+echo.
 call :StartProject
 if errorlevel 1 call :Fail "项目启动失败。"
 
@@ -125,7 +182,6 @@ if not defined CURL_EXE (
         if not defined CURL_EXE set "CURL_EXE=%%i"
     )
 )
-
 exit /b 0
 
 
@@ -147,8 +203,10 @@ echo 请优先检查：
 echo 1. Windows PowerShell 是否存在。
 echo 2. 系统 PATH 是否损坏。
 echo 3. 杀毒软件是否拦截 Git / Node / clone。
-echo 4. 网络是否能访问 GitHub / nodejs.org。
+echo 4. 网络是否能访问 GitHub / npmmirror.com。
 echo 5. 如果 Node.js 反复 1603，请先卸载 Node.js 并重启。
+echo 6. 如果代理被拒绝，可设置 ALLOW_THIRD_PARTY_PROXY=1，并自行承担风险。
+echo 7. 如果 GitHub 不可达但要校验代理 clone，可设置 EXPECTED_ST_RELEASE_HEAD。
 echo.
 pause
 exit /b 1
@@ -226,12 +284,12 @@ if defined CURL_EXE (
 
     "%CURL_EXE%" -L --fail --retry 3 --retry-delay 2 --connect-timeout 30 --output "%DOWNLOAD_OUT%" "%DOWNLOAD_URL%" >> "%LOG_FILE%" 2>&1
     if errorlevel 1 exit /b 1
-
     if not exist "%DOWNLOAD_OUT%" exit /b 1
 
     for %%F in ("%DOWNLOAD_OUT%") do (
         if %%~zF LSS 1048576 (
             echo 下载文件过小，可能是错误页面。>> "%LOG_FILE%"
+            del /f /q "%DOWNLOAD_OUT%" >nul 2>&1
             exit /b 1
         )
     )
@@ -241,6 +299,71 @@ if defined CURL_EXE (
 
 echo 未找到 PowerShell 或 curl，无法自动下载。>> "%LOG_FILE%"
 exit /b 1
+
+
+:VerifyPackage
+set "VERIFY_FILE=%~1"
+set "VERIFY_NAME=%~2"
+set "EXPECTED_SHA256=%~3"
+set "SIGNER_HINTS=%~4"
+set "SIGNER_THUMBPRINTS=%~5"
+
+if not exist "%VERIFY_FILE%" (
+    echo 待校验文件不存在: "%VERIFY_FILE%"
+    echo 待校验文件不存在: "%VERIFY_FILE%">> "%LOG_FILE%"
+    exit /b 1
+)
+
+if /i "%REQUIRE_INSTALLER_SHA256%"=="1" (
+    if not defined EXPECTED_SHA256 (
+        echo 已启用 REQUIRE_INSTALLER_SHA256=1，但 %VERIFY_NAME% 未提供 SHA256。
+        echo 已启用 REQUIRE_INSTALLER_SHA256=1，但 %VERIFY_NAME% 未提供 SHA256。>> "%LOG_FILE%"
+        exit /b 1
+    )
+)
+
+if not defined POWERSHELL_EXE (
+    echo 未找到 PowerShell，无法校验 %VERIFY_NAME%。
+    echo 未找到 PowerShell，无法校验 %VERIFY_NAME%。>> "%LOG_FILE%"
+    exit /b 1
+)
+
+echo 正在校验 %VERIFY_NAME% 签名 / 发布者 / Thumbprint / SHA256...
+echo 正在校验 %VERIFY_NAME% 签名 / 发布者 / Thumbprint / SHA256...>> "%LOG_FILE%"
+
+"%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference='Stop';" ^
+  "$file=$env:VERIFY_FILE;" ^
+  "$expected=$env:EXPECTED_SHA256;" ^
+  "$hints=$env:SIGNER_HINTS;" ^
+  "$thumbprints=$env:SIGNER_THUMBPRINTS;" ^
+  "$sig=Get-AuthenticodeSignature -LiteralPath $file;" ^
+  "Write-Host ('签名状态: ' + $sig.Status);" ^
+  "$subject='';$issuer='';$thumb='';" ^
+  "if($sig.SignerCertificate){$subject=$sig.SignerCertificate.Subject;$issuer=$sig.SignerCertificate.Issuer;$thumb=$sig.SignerCertificate.Thumbprint;Write-Host ('签名者: ' + $subject);Write-Host ('颁发者: ' + $issuer);Write-Host ('Thumbprint: ' + $thumb)};" ^
+  "if($sig.Status -ne 'Valid'){throw ('签名无效: ' + $sig.Status)};" ^
+  "if($thumbprints){" ^
+  "  $thumbOk=$false;" ^
+  "  foreach($t in ($thumbprints -split '\|')){if($t -and ($thumb -ieq $t.Trim())){$thumbOk=$true}};" ^
+  "  if(!$thumbOk){throw ('证书 Thumbprint 不在白名单: ' + $thumb)};" ^
+  "}else{" ^
+  "  $ok=$false;" ^
+  "  foreach($h in ($hints -split '\|')){if($h -and (($subject -like ('*' + $h + '*')) -or ($issuer -like ('*' + $h + '*')))){$ok=$true}};" ^
+  "  if(!$ok){throw ('签名者不匹配预期发布者关键字: ' + $hints)};" ^
+  "}" ^
+  "$actual=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToUpperInvariant();" ^
+  "Write-Host ('SHA256: ' + $actual);" ^
+  "if($expected -and ($actual -ne $expected.ToUpperInvariant())){throw ('SHA256 不匹配，期望: ' + $expected + ' 实际: ' + $actual)};" >> "%LOG_FILE%" 2>&1
+
+if errorlevel 1 (
+    echo %VERIFY_NAME% 校验失败，拒绝继续安装。
+    echo %VERIFY_NAME% 校验失败，拒绝继续安装。>> "%LOG_FILE%"
+    exit /b 1
+)
+
+echo %VERIFY_NAME% 校验通过。
+echo %VERIFY_NAME% 校验通过。>> "%LOG_FILE%"
+exit /b 0
 
 
 :InstallByWinget
@@ -275,17 +398,20 @@ echo 未检测到 Git，尝试 winget 安装...>> "%LOG_FILE%"
 
 call :InstallByWinget "Git.Git"
 if errorlevel 1 (
-    echo winget 安装 Git 失败，改用安装包方式。
-    echo winget 安装 Git 失败，改用安装包方式。>> "%LOG_FILE%"
+    echo winget 安装 Git 失败，改用 npmmirror 安装包方式。
+    echo winget 安装 Git 失败，改用 npmmirror 安装包方式。>> "%LOG_FILE%"
 
     if exist "%CURRENT_DIR%\Git-Setup.exe" (
         copy /y "%CURRENT_DIR%\Git-Setup.exe" "%GIT_INSTALLER%" >nul
-    ) else if exist "%CURRENT_DIR%\Git-2.45.2-64-bit.exe" (
-        copy /y "%CURRENT_DIR%\Git-2.45.2-64-bit.exe" "%GIT_INSTALLER%" >nul
+    ) else if exist "%CURRENT_DIR%\Git-%GIT_VERSION%-64-bit.exe" (
+        copy /y "%CURRENT_DIR%\Git-%GIT_VERSION%-64-bit.exe" "%GIT_INSTALLER%" >nul
     ) else (
         call :DownloadFile "%GIT_URL%" "%GIT_INSTALLER%"
         if errorlevel 1 exit /b 1
     )
+
+    call :VerifyPackage "%GIT_INSTALLER%" "Git for Windows 安装包" "%GIT_INSTALLER_SHA256%" "Johannes Schindelin|GitHub|Open Source Developer" "%GIT_SIGNER_THUMBPRINTS%"
+    if errorlevel 1 exit /b 1
 
     echo 正在静默安装 Git...
     echo 正在静默安装 Git...>> "%LOG_FILE%"
@@ -319,7 +445,6 @@ if not defined NODE_EXE if exist "%ProgramFiles(x86)%\nodejs\node.exe" set "NODE
 if not defined NODE_EXE if exist "%LOCALAPPDATA%\Programs\nodejs\node.exe" set "NODE_EXE=%LOCALAPPDATA%\Programs\nodejs\node.exe"
 
 if defined NODE_EXE goto :VerifyNodeExe
-
 if not defined POWERSHELL_EXE goto :NodeNoPowerShellDetect
 
 "%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -380,7 +505,6 @@ echo 检测到 Node.js: %NODE_EXE%
 echo 检测到 Node.js: %NODE_EXE%>> "%LOG_FILE%"
 echo Node.js 版本: %NODE_STATUS%
 echo Node.js 版本: %NODE_STATUS%>> "%LOG_FILE%"
-
 exit /b 0
 
 
@@ -395,17 +519,9 @@ if "%NODE_DETECT_CODE%"=="0" exit /b 0
 if "%NODE_DETECT_CODE%"=="2" (
     echo.
     echo 系统里已有 Node.js 安装记录或残留，但脚本找不到可用 node.exe。
-    echo 所以继续安装会反复触发 1603。
-    echo.
-    echo 请先清理 Node.js 后重新运行脚本：
-    echo 1. 设置 - 应用 - 已安装的应用 - 卸载 Node.js
-    echo 2. 或 控制面板 - 程序和功能 - 卸载 Node.js
-    echo 3. 或 管理员终端执行：winget uninstall --id OpenJS.NodeJS.LTS -e
-    echo.
-    echo 清理后建议重启 Windows。
+    echo 请先卸载 Node.js，重启 Windows 后重新运行脚本。
     echo.
     echo 系统里已有 Node.js 安装记录或残留，但脚本找不到可用 node.exe。>> "%LOG_FILE%"
-    echo 继续安装会反复触发 1603。>> "%LOG_FILE%"
     echo 请卸载 Node.js 后重启，再重新运行脚本。>> "%LOG_FILE%"
     exit /b 1
 )
@@ -419,38 +535,33 @@ set "WINGET_EXIT_CODE=%ERRORLEVEL%"
 echo winget 安装命令返回码: %WINGET_EXIT_CODE%
 echo winget 安装命令返回码: %WINGET_EXIT_CODE%>> "%LOG_FILE%"
 
-echo winget 安装结束，重新检测 Node.js...
-echo winget 安装结束，重新检测 Node.js...>> "%LOG_FILE%"
-
 call :RefreshPath
-
 call :DetectNode
 set "NODE_DETECT_CODE=%ERRORLEVEL%"
 
 if "%NODE_DETECT_CODE%"=="0" exit /b 0
 
 if "%NODE_DETECT_CODE%"=="2" (
-    echo.
     echo winget 后检测到 Node.js 安装记录，但 node.exe 不可用。
-    echo 为避免继续触发 1603，脚本不会再尝试 MSI 安装。
     echo 请卸载 Node.js，重启 Windows 后重新运行脚本。
-    echo.
     echo winget 后检测到 Node.js 安装记录，但 node.exe 不可用。>> "%LOG_FILE%"
-    echo 为避免继续触发 1603，跳过 MSI fallback。>> "%LOG_FILE%"
     exit /b 1
 )
 
-echo winget 后仍未检测到 Node.js，改用 MSI 安装包方式。
-echo winget 后仍未检测到 Node.js，改用 MSI 安装包方式。>> "%LOG_FILE%"
+echo winget 后仍未检测到 Node.js，改用 npmmirror MSI 安装包方式。
+echo winget 后仍未检测到 Node.js，改用 npmmirror MSI 安装包方式。>> "%LOG_FILE%"
 
 if exist "%CURRENT_DIR%\NodeJS-Setup.msi" (
     copy /y "%CURRENT_DIR%\NodeJS-Setup.msi" "%NODE_INSTALLER%" >nul
-) else if exist "%CURRENT_DIR%\node-v20.11.1-x64.msi" (
-    copy /y "%CURRENT_DIR%\node-v20.11.1-x64.msi" "%NODE_INSTALLER%" >nul
+) else if exist "%CURRENT_DIR%\node-v%NODE_VERSION%-x64.msi" (
+    copy /y "%CURRENT_DIR%\node-v%NODE_VERSION%-x64.msi" "%NODE_INSTALLER%" >nul
 ) else (
     call :DownloadFile "%NODE_URL%" "%NODE_INSTALLER%"
     if errorlevel 1 exit /b 1
 )
+
+call :VerifyPackage "%NODE_INSTALLER%" "Node.js MSI 安装包" "%NODE_INSTALLER_SHA256%" "OpenJS Foundation|Node.js Foundation|Node.js" "%NODE_SIGNER_THUMBPRINTS%"
+if errorlevel 1 exit /b 1
 
 echo 正在静默安装 Node.js MSI...
 echo 正在静默安装 Node.js MSI...>> "%LOG_FILE%"
@@ -467,23 +578,21 @@ if "%MSI_EXIT_CODE%"=="3010" (
 ) else if not "%MSI_EXIT_CODE%"=="0" (
     echo Node.js MSI 安装失败，返回码: %MSI_EXIT_CODE%
     echo Node.js MSI 安装失败，返回码: %MSI_EXIT_CODE%>> "%LOG_FILE%"
-    echo 如果返回码是 1603，通常表示系统存在 Node.js 旧安装、残留安装记录、降级冲突或 Windows Installer 状态异常。
-    echo 如果返回码是 1603，通常表示系统存在 Node.js 旧安装、残留安装记录、降级冲突或 Windows Installer 状态异常。>> "%LOG_FILE%"
+    if "%MSI_EXIT_CODE%"=="1603" (
+        echo 1603 通常与旧版本残留、降级冲突、权限或 Windows Installer 状态异常有关。
+        echo 1603 通常与旧版本残留、降级冲突、权限或 Windows Installer 状态异常有关。>> "%LOG_FILE%"
+    )
     echo 请卸载 Node.js，重启 Windows 后重新运行脚本。
     echo 请卸载 Node.js，重启 Windows 后重新运行脚本。>> "%LOG_FILE%"
     exit /b 1
 )
 
 call :RefreshPath
-
 call :DetectNode
 if not errorlevel 1 exit /b 0
 
 echo MSI 安装后仍未检测到 node.exe。
 echo MSI 安装后仍未检测到 node.exe。>> "%LOG_FILE%"
-echo 请重启 Windows 后重新运行脚本。
-echo 请重启 Windows 后重新运行脚本。>> "%LOG_FILE%"
-
 exit /b 1
 
 
@@ -510,19 +619,469 @@ echo 检测到 npm: %NPM_CMD%
 echo 检测到 npm: %NPM_CMD%>> "%LOG_FILE%"
 echo npm 版本: %NPM_STATUS%
 echo npm 版本: %NPM_STATUS%>> "%LOG_FILE%"
-
 exit /b 0
 
 
 :EnsureNpm
 call :RefreshPath
-
 call :DetectNode
 if errorlevel 1 exit /b 1
-
 call :DetectNpm
 if errorlevel 1 exit /b 1
+exit /b 0
 
+
+:WriteInstallerNpmrc
+echo 正在写入脚本私有 npmrc，不修改项目 .npmrc / 用户全局 .npmrc...
+echo 正在写入脚本私有 npmrc，不修改项目 .npmrc / 用户全局 .npmrc...>> "%LOG_FILE%"
+
+(
+    echo registry=%NPM_REGISTRY%
+    echo disturl=https://npmmirror.com/mirrors/node
+    echo electron_mirror=https://npmmirror.com/mirrors/electron/
+    echo sharp_binary_host=https://npmmirror.com/mirrors/sharp
+    echo sharp_libvips_binary_host=https://npmmirror.com/mirrors/sharp-libvips
+) > "%INSTALLER_NPMRC%"
+
+if errorlevel 1 (
+    echo npm 私有配置文件写入失败: "%INSTALLER_NPMRC%"
+    echo 请检查目录权限、磁盘空间或杀毒软件拦截。
+    echo npm 私有配置文件写入失败: "%INSTALLER_NPMRC%">> "%LOG_FILE%"
+    echo 请检查目录权限、磁盘空间或杀毒软件拦截。>> "%LOG_FILE%"
+    exit /b 1
+)
+
+echo npm 私有配置文件: "%INSTALLER_NPMRC%"
+echo npm 私有配置文件: "%INSTALLER_NPMRC%">> "%LOG_FILE%"
+exit /b 0
+
+
+:ConfirmThirdPartyProxy
+if /i "%ALLOW_THIRD_PARTY_PROXY%"=="1" (
+    set "THIRD_PARTY_PROXY_CONFIRMED=1"
+    exit /b 0
+)
+
+if /i "%ALLOW_THIRD_PARTY_PROXY%"=="0" (
+    echo 已禁用第三方 GitHub 代理。
+    echo 已禁用第三方 GitHub 代理。>> "%LOG_FILE%"
+    exit /b 1
+)
+
+if "%THIRD_PARTY_PROXY_PROMPTED%"=="1" (
+    if "%THIRD_PARTY_PROXY_CONFIRMED%"=="1" exit /b 0
+    exit /b 1
+)
+
+if /i "%NO_INTERACTIVE%"=="1" (
+    echo NO_INTERACTIVE=1 且 ALLOW_THIRD_PARTY_PROXY=ASK，跳过第三方代理以避免阻塞。
+    echo NO_INTERACTIVE=1 且 ALLOW_THIRD_PARTY_PROXY=ASK，跳过第三方代理以避免阻塞。>> "%LOG_FILE%"
+    echo 如需无人值守启用代理，请预先设置 ALLOW_THIRD_PARTY_PROXY=1。
+    echo 如需无人值守禁用代理，请预先设置 ALLOW_THIRD_PARTY_PROXY=0。
+    exit /b 1
+)
+
+set "THIRD_PARTY_PROXY_PROMPTED=1"
+
+echo.
+echo ==================================================
+echo 警告：即将使用第三方 GitHub 代理。
+echo 这些代理不是 GitHub 官方服务，可能存在缓存、替换、污染或失效风险。
+echo 如果 REQUIRE_PROXY_COMMIT_VERIFY=1，代理 clone 必须和官方或预置 release HEAD 一致。
+echo 如果 GitHub 不可达，可预设 EXPECTED_ST_RELEASE_HEAD。
+echo 无人值守场景请设置 ALLOW_THIRD_PARTY_PROXY=0 或 1。
+echo ==================================================
+echo.
+echo 如果确认继续使用第三方代理，请输入 YES。
+echo 其他输入将跳过代理。
+echo.
+
+set "PROXY_CONFIRM="
+set /p "PROXY_CONFIRM=请输入 YES 继续使用第三方代理: "
+
+if /i "%PROXY_CONFIRM%"=="YES" (
+    set "THIRD_PARTY_PROXY_CONFIRMED=1"
+    echo 用户已确认启用第三方 GitHub 代理。
+    echo 用户已确认启用第三方 GitHub 代理。>> "%LOG_FILE%"
+    exit /b 0
+)
+
+echo 用户未确认第三方代理，跳过代理 fallback。
+echo 用户未确认第三方代理，跳过代理 fallback。>> "%LOG_FILE%"
+exit /b 1
+
+
+:FetchOfficialReleaseHead
+set "OFFICIAL_RELEASE_HEAD="
+set "OFFICIAL_HEAD_FILE=%INSTALLER_DIR%\official-release-head.txt"
+set "OFFICIAL_HEAD_JSON=%INSTALLER_DIR%\official-release-head.json"
+
+if defined EXPECTED_ST_RELEASE_HEAD (
+    set "OFFICIAL_RELEASE_HEAD=%EXPECTED_ST_RELEASE_HEAD%"
+    echo 使用预置 release HEAD: %OFFICIAL_RELEASE_HEAD%
+    echo 使用预置 release HEAD: %OFFICIAL_RELEASE_HEAD%>> "%LOG_FILE%"
+    exit /b 0
+)
+
+if exist "%OFFICIAL_HEAD_FILE%" del /f /q "%OFFICIAL_HEAD_FILE%" >nul 2>&1
+if exist "%OFFICIAL_HEAD_JSON%" del /f /q "%OFFICIAL_HEAD_JSON%" >nul 2>&1
+
+echo 正在获取官方 release HEAD 用于代理完整性校验...
+echo 正在获取官方 release HEAD 用于代理完整性校验...>> "%LOG_FILE%"
+
+call :FetchOfficialReleaseHeadByApi
+if not errorlevel 1 exit /b 0
+
+echo GitHub API 获取 release HEAD 失败，尝试 git ls-remote 官方仓库...
+echo GitHub API 获取 release HEAD 失败，尝试 git ls-remote 官方仓库...>> "%LOG_FILE%"
+
+git ^
+  -c http.version=HTTP/1.1 ^
+  -c http.lowSpeedLimit=%GIT_LOW_SPEED_LIMIT% ^
+  -c http.lowSpeedTime=30 ^
+  ls-remote --heads "%ST_GIT_URL%" release > "%OFFICIAL_HEAD_FILE%" 2>> "%LOG_FILE%"
+
+if errorlevel 1 (
+    echo 无法获取官方 release HEAD。
+    echo 无法获取官方 release HEAD。>> "%LOG_FILE%"
+    echo 可预先设置 EXPECTED_ST_RELEASE_HEAD 后再运行，以便在 GitHub 不可达时校验代理 clone。
+    echo 可预先设置 EXPECTED_ST_RELEASE_HEAD 后再运行，以便在 GitHub 不可达时校验代理 clone。>> "%LOG_FILE%"
+    exit /b 1
+)
+
+for /f "usebackq tokens=1" %%A in ("%OFFICIAL_HEAD_FILE%") do (
+    if not defined OFFICIAL_RELEASE_HEAD set "OFFICIAL_RELEASE_HEAD=%%A"
+)
+
+if not defined OFFICIAL_RELEASE_HEAD (
+    echo 官方 release HEAD 为空。
+    echo 官方 release HEAD 为空。>> "%LOG_FILE%"
+    echo 可预先设置 EXPECTED_ST_RELEASE_HEAD 后再运行。
+    echo 可预先设置 EXPECTED_ST_RELEASE_HEAD 后再运行。>> "%LOG_FILE%"
+    exit /b 1
+)
+
+echo 官方 release HEAD: %OFFICIAL_RELEASE_HEAD%
+echo 官方 release HEAD: %OFFICIAL_RELEASE_HEAD%>> "%LOG_FILE%"
+exit /b 0
+
+
+:FetchOfficialReleaseHeadByApi
+if not defined POWERSHELL_EXE exit /b 1
+
+"%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference='Stop';" ^
+  "$ProgressPreference='SilentlyContinue';" ^
+  "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;" ^
+  "$url=$env:ST_RELEASE_HEAD_API;" ^
+  "$out=$env:OFFICIAL_HEAD_JSON;" ^
+  "$json=Invoke-RestMethod -Uri $url -Headers @{ 'User-Agent'='silly-tavern-windows-installer' } -TimeoutSec 20;" ^
+  "$json | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $out -Encoding UTF8;" ^
+  "$sha=$json.object.sha;" ^
+  "if(!$sha -or $sha.Length -ne 40){throw 'GitHub API release HEAD 无效'};" ^
+  "Set-Content -LiteralPath $env:OFFICIAL_HEAD_FILE -Value $sha -Encoding ASCII;" >> "%LOG_FILE%" 2>&1
+
+if errorlevel 1 exit /b 1
+
+for /f "usebackq tokens=1" %%A in ("%OFFICIAL_HEAD_FILE%") do (
+    if not defined OFFICIAL_RELEASE_HEAD set "OFFICIAL_RELEASE_HEAD=%%A"
+)
+
+if not defined OFFICIAL_RELEASE_HEAD exit /b 1
+
+echo 官方 release HEAD(API): %OFFICIAL_RELEASE_HEAD%
+echo 官方 release HEAD(API): %OFFICIAL_RELEASE_HEAD%>> "%LOG_FILE%"
+exit /b 0
+
+
+:VerifyProxyCloneHead
+set "CLONED_HEAD="
+
+for /f "tokens=*" %%H in ('git -C "%PROJECT_DIR%" rev-parse HEAD 2^>nul') do set "CLONED_HEAD=%%H"
+
+echo 代理 clone HEAD: %CLONED_HEAD%
+echo 代理 clone HEAD: %CLONED_HEAD%>> "%LOG_FILE%"
+
+if not defined CLONED_HEAD (
+    echo 无法读取代理 clone HEAD。
+    echo 无法读取代理 clone HEAD。>> "%LOG_FILE%"
+    exit /b 1
+)
+
+if not defined OFFICIAL_RELEASE_HEAD (
+    if /i "%REQUIRE_PROXY_COMMIT_VERIFY%"=="1" (
+        echo 缺少官方或预置 release HEAD，拒绝未验证的代理 clone。
+        echo 缺少官方或预置 release HEAD，拒绝未验证的代理 clone。>> "%LOG_FILE%"
+        exit /b 1
+    )
+    exit /b 0
+)
+
+if /i not "%CLONED_HEAD%"=="%OFFICIAL_RELEASE_HEAD%" (
+    echo 代理 clone HEAD 与官方或预置 release HEAD 不一致，拒绝使用。
+    echo 代理 clone HEAD 与官方或预置 release HEAD 不一致，拒绝使用。>> "%LOG_FILE%"
+    exit /b 1
+)
+
+exit /b 0
+
+
+:TryClone
+set "CLONE_URL=%~1"
+set "CLONE_NAME=%~2"
+set "CLONE_NEEDS_VERIFY=%~3"
+
+if exist "%PROJECT_DIR%" rmdir /s /q "%PROJECT_DIR%" >> "%LOG_FILE%" 2>&1
+
+echo 尝试 clone：%CLONE_NAME%
+echo clone 地址: %CLONE_URL%
+echo 尝试 clone：%CLONE_NAME%>> "%LOG_FILE%"
+echo clone 地址: %CLONE_URL%>> "%LOG_FILE%"
+
+git ^
+  -c http.version=HTTP/1.1 ^
+  -c http.lowSpeedLimit=%GIT_LOW_SPEED_LIMIT% ^
+  -c http.lowSpeedTime=%GIT_LOW_SPEED_TIME% ^
+  clone --depth 1 --branch release "%CLONE_URL%" "%PROJECT_DIR%" >> "%LOG_FILE%" 2>&1
+
+if errorlevel 1 (
+    if exist "%PROJECT_DIR%" rmdir /s /q "%PROJECT_DIR%" >> "%LOG_FILE%" 2>&1
+    exit /b 1
+)
+
+if not exist "%PROJECT_DIR%\start.bat" (
+    echo clone 结果缺少 start.bat。
+    echo clone 结果缺少 start.bat。>> "%LOG_FILE%"
+    if exist "%PROJECT_DIR%" rmdir /s /q "%PROJECT_DIR%" >> "%LOG_FILE%" 2>&1
+    exit /b 1
+)
+
+if /i "%CLONE_NEEDS_VERIFY%"=="1" (
+    call :VerifyProxyCloneHead
+    if errorlevel 1 (
+        if exist "%PROJECT_DIR%" rmdir /s /q "%PROJECT_DIR%" >> "%LOG_FILE%" 2>&1
+        exit /b 1
+    )
+)
+
+git -C "%PROJECT_DIR%" remote set-url origin "%ST_GIT_URL%" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 (
+    echo 警告：无法将 origin 重置为官方 GitHub 地址。
+    echo 警告：无法将 origin 重置为官方 GitHub 地址。>> "%LOG_FILE%"
+)
+
+set "PROJECT_SOURCE_USED=%CLONE_NAME%"
+exit /b 0
+
+
+:CloneSillyTavernWithFallback
+call :TryClone "%ST_GIT_URL%" "GitHub 官方直连 clone" "0"
+if not errorlevel 1 exit /b 0
+
+call :ConfirmThirdPartyProxy
+if errorlevel 1 exit /b 1
+
+call :FetchOfficialReleaseHead
+if errorlevel 1 (
+    if /i "%REQUIRE_PROXY_COMMIT_VERIFY%"=="1" (
+        echo REQUIRE_PROXY_COMMIT_VERIFY=1，无法校验代理 clone，跳过代理。
+        echo REQUIRE_PROXY_COMMIT_VERIFY=1，无法校验代理 clone，跳过代理。>> "%LOG_FILE%"
+        exit /b 1
+    )
+)
+
+call :TryClone "%ST_GIT_URL_PROXY_1%" "第三方代理 clone 1 gh-proxy.com" "1"
+if not errorlevel 1 exit /b 0
+
+call :TryClone "%ST_GIT_URL_PROXY_2%" "第三方代理 clone 2 hubp.llkk.cc" "1"
+if not errorlevel 1 exit /b 0
+
+exit /b 1
+
+
+:ValidateExtractedProject
+if not exist "%PROJECT_DIR%\start.bat" exit /b 1
+if not exist "%PROJECT_DIR%\package.json" exit /b 1
+exit /b 0
+
+
+:DownloadSillyTavernZipWithFallback
+if exist "%ST_ZIP%" del /f /q "%ST_ZIP%" >> "%LOG_FILE%" 2>&1
+
+echo 尝试直连 GitHub ZIP...
+echo 尝试直连 GitHub ZIP...>> "%LOG_FILE%"
+call :DownloadFile "%ST_ZIP_URL%" "%ST_ZIP%"
+if not errorlevel 1 (
+    set "PROJECT_SOURCE_USED=GitHub 官方直连 ZIP"
+    exit /b 0
+)
+
+call :ConfirmThirdPartyProxy
+if errorlevel 1 exit /b 1
+
+if /i "%REQUIRE_PROXY_COMMIT_VERIFY%"=="1" (
+    echo REQUIRE_PROXY_COMMIT_VERIFY=1，ZIP 代理无法进行 commit 校验，拒绝代理 ZIP。
+    echo 如需允许代理 ZIP，请在运行前设置：set REQUIRE_PROXY_COMMIT_VERIFY=0
+    echo REQUIRE_PROXY_COMMIT_VERIFY=1，ZIP 代理无法进行 commit 校验，拒绝代理 ZIP。>> "%LOG_FILE%"
+    echo 如需允许代理 ZIP，请在运行前设置：set REQUIRE_PROXY_COMMIT_VERIFY=0>> "%LOG_FILE%"
+    exit /b 1
+)
+
+if exist "%ST_ZIP%" del /f /q "%ST_ZIP%" >> "%LOG_FILE%" 2>&1
+echo 尝试第三方代理 ZIP 1...
+echo 尝试第三方代理 ZIP 1...>> "%LOG_FILE%"
+call :DownloadFile "%ST_ZIP_URL_PROXY_1%" "%ST_ZIP%"
+if not errorlevel 1 (
+    set "PROJECT_SOURCE_USED=第三方代理 ZIP 1 gh-proxy.com"
+    exit /b 0
+)
+
+if exist "%ST_ZIP%" del /f /q "%ST_ZIP%" >> "%LOG_FILE%" 2>&1
+echo 尝试第三方代理 ZIP 2...
+echo 尝试第三方代理 ZIP 2...>> "%LOG_FILE%"
+call :DownloadFile "%ST_ZIP_URL_PROXY_2%" "%ST_ZIP%"
+if not errorlevel 1 (
+    set "PROJECT_SOURCE_USED=第三方代理 ZIP 2 gh.llkk.cc"
+    exit /b 0
+)
+
+if exist "%ST_ZIP%" del /f /q "%ST_ZIP%" >> "%LOG_FILE%" 2>&1
+exit /b 1
+
+
+:TryFetchRelease
+set "FETCH_URL=%~1"
+set "FETCH_NAME=%~2"
+set "FETCH_NEEDS_VERIFY=%~3"
+set "FETCHED_HEAD="
+
+echo 尝试 fetch：%FETCH_NAME%
+echo fetch 地址: %FETCH_URL%
+echo 尝试 fetch：%FETCH_NAME%>> "%LOG_FILE%"
+echo fetch 地址: %FETCH_URL%>> "%LOG_FILE%"
+
+git ^
+  -c http.version=HTTP/1.1 ^
+  -c http.lowSpeedLimit=%GIT_LOW_SPEED_LIMIT% ^
+  -c http.lowSpeedTime=%GIT_LOW_SPEED_TIME% ^
+  -C "%PROJECT_DIR%" fetch "%FETCH_URL%" release --depth 1 >> "%LOG_FILE%" 2>&1
+
+if errorlevel 1 exit /b 1
+
+for /f "tokens=*" %%H in ('git -C "%PROJECT_DIR%" rev-parse FETCH_HEAD 2^>nul') do set "FETCHED_HEAD=%%H"
+
+if /i "%FETCH_NEEDS_VERIFY%"=="1" (
+    if not defined FETCHED_HEAD (
+        echo 无法读取代理 fetch HEAD。
+        echo 无法读取代理 fetch HEAD。>> "%LOG_FILE%"
+        exit /b 1
+    )
+
+    echo 代理 fetch HEAD: %FETCHED_HEAD%
+    echo 代理 fetch HEAD: %FETCHED_HEAD%>> "%LOG_FILE%"
+
+    if not defined OFFICIAL_RELEASE_HEAD (
+        if /i "%REQUIRE_PROXY_COMMIT_VERIFY%"=="1" (
+            echo 缺少官方或预置 release HEAD，拒绝未验证的代理 fetch。
+            echo 缺少官方或预置 release HEAD，拒绝未验证的代理 fetch。>> "%LOG_FILE%"
+            exit /b 1
+        )
+    ) else if /i not "%FETCHED_HEAD%"=="%OFFICIAL_RELEASE_HEAD%" (
+        echo 代理 fetch HEAD 与官方或预置 release HEAD 不一致，拒绝使用。
+        echo 代理 fetch HEAD 与官方或预置 release HEAD 不一致，拒绝使用。>> "%LOG_FILE%"
+        exit /b 1
+    )
+)
+
+set "FETCH_SOURCE_USED=%FETCH_NAME%"
+exit /b 0
+
+
+:FetchReleaseWithFallback
+set "FETCH_SOURCE_USED="
+
+call :TryFetchRelease "%ST_GIT_URL%" "GitHub 官方直连 fetch" "0"
+if not errorlevel 1 exit /b 0
+
+call :ConfirmThirdPartyProxy
+if errorlevel 1 exit /b 1
+
+call :FetchOfficialReleaseHead
+if errorlevel 1 (
+    if /i "%REQUIRE_PROXY_COMMIT_VERIFY%"=="1" (
+        echo REQUIRE_PROXY_COMMIT_VERIFY=1，无法校验代理 fetch，跳过代理。
+        echo REQUIRE_PROXY_COMMIT_VERIFY=1，无法校验代理 fetch，跳过代理。>> "%LOG_FILE%"
+        exit /b 1
+    )
+)
+
+call :TryFetchRelease "%ST_GIT_URL_PROXY_1%" "第三方代理 fetch 1 gh-proxy.com" "1"
+if not errorlevel 1 exit /b 0
+
+call :TryFetchRelease "%ST_GIT_URL_PROXY_2%" "第三方代理 fetch 2 hubp.llkk.cc" "1"
+if not errorlevel 1 exit /b 0
+
+exit /b 1
+
+
+:UpdateExistingGitProject
+set "STATUS_FILE=%INSTALLER_DIR%\git-status.txt"
+set "GIT_DIRTY=0"
+
+if exist "%STATUS_FILE%" del /f /q "%STATUS_FILE%" >nul 2>&1
+
+git -C "%PROJECT_DIR%" status --porcelain > "%STATUS_FILE%" 2>> "%LOG_FILE%"
+if errorlevel 1 exit /b 1
+
+for %%F in ("%STATUS_FILE%") do (
+    if %%~zF GTR 0 set "GIT_DIRTY=1"
+)
+
+if "%GIT_DIRTY%"=="1" (
+    echo Git 工作区存在本地修改，跳过自动切换/更新 release 分支。
+    echo Git 工作区存在本地修改，跳过自动切换/更新 release 分支。>> "%LOG_FILE%"
+    set "PROJECT_SOURCE_USED=已有 Git 项目，本地有修改，跳过更新"
+    exit /b 0
+)
+
+echo 正在更新 release 分支，官方 GitHub 失败后可按配置使用已校验代理。
+echo 正在更新 release 分支，官方 GitHub 失败后可按配置使用已校验代理。>> "%LOG_FILE%"
+
+call :FetchReleaseWithFallback
+if errorlevel 1 (
+    echo release fetch 失败，跳过更新，继续使用现有项目。
+    echo release fetch 失败，跳过更新，继续使用现有项目。>> "%LOG_FILE%"
+    set "PROJECT_SOURCE_USED=已有 Git 项目，fetch 失败，跳过更新"
+    exit /b 0
+)
+
+git -C "%PROJECT_DIR%" checkout release >> "%LOG_FILE%" 2>&1
+if errorlevel 1 (
+    git -C "%PROJECT_DIR%" checkout -B release FETCH_HEAD >> "%LOG_FILE%" 2>&1
+)
+
+if errorlevel 1 (
+    echo 无法切换到 release 分支，跳过更新。
+    echo 无法切换到 release 分支，跳过更新。>> "%LOG_FILE%"
+    set "PROJECT_SOURCE_USED=已有 Git 项目，无法切换 release"
+    exit /b 0
+)
+
+git -C "%PROJECT_DIR%" merge --ff-only FETCH_HEAD >> "%LOG_FILE%" 2>&1
+if errorlevel 1 (
+    echo release 分支无法快进合并，跳过更新。
+    echo release 分支无法快进合并，跳过更新。>> "%LOG_FILE%"
+    set "PROJECT_SOURCE_USED=已有 Git 项目，无法快进更新"
+    exit /b 0
+)
+
+git -C "%PROJECT_DIR%" remote set-url origin "%ST_GIT_URL%" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 (
+    echo 警告：无法将 origin 重置为官方 GitHub 地址。
+    echo 警告：无法将 origin 重置为官方 GitHub 地址。>> "%LOG_FILE%"
+)
+
+set "PROJECT_SOURCE_USED=已有 Git 项目，已更新 release（%FETCH_SOURCE_USED%）"
 exit /b 0
 
 
@@ -533,48 +1092,41 @@ if exist "%PROJECT_DIR%" (
     if not exist "%PROJECT_DIR%\start.bat" (
         echo 检测到不完整的 SillyTavern 目录，正在备份旧目录...
         echo 检测到不完整的 SillyTavern 目录，正在备份旧目录...>> "%LOG_FILE%"
-        ren "%PROJECT_DIR%" "SillyTavern_broken_%RANDOM%" >> "%LOG_FILE%" 2>&1
+        ren "%PROJECT_DIR%" "SillyTavern_broken_%RANDOM%%RANDOM%" >> "%LOG_FILE%" 2>&1
+        if errorlevel 1 (
+            echo 无法备份不完整目录，请手动删除: "%PROJECT_DIR%"
+            echo 无法备份不完整目录，请手动删除: "%PROJECT_DIR%">> "%LOG_FILE%"
+            exit /b 1
+        )
     )
 )
 
 if exist "%PROJECT_DIR%\start.bat" (
     if exist "%PROJECT_DIR%\.git" (
-        echo 检测到已存在 Git 项目，尝试更新...
-        echo 检测到已存在 Git 项目，尝试更新...>> "%LOG_FILE%"
-
-        git -C "%PROJECT_DIR%" pull --ff-only >> "%LOG_FILE%" 2>&1
-        if errorlevel 1 (
-            echo 更新失败，跳过更新，继续启动现有项目。
-            echo 更新失败，跳过更新，继续启动现有项目。>> "%LOG_FILE%"
-        )
+        call :UpdateExistingGitProject
+        exit /b 0
     ) else (
-        echo 检测到 ZIP 版项目，跳过 Git 更新。
-        echo 检测到 ZIP 版项目，跳过 Git 更新。>> "%LOG_FILE%"
+        echo 检测到已有 ZIP/非 Git 版项目，start.bat 存在，跳过下载。
+        echo 检测到已有 ZIP/非 Git 版项目，start.bat 存在，跳过下载。>> "%LOG_FILE%"
+        set "PROJECT_SOURCE_USED=已有 ZIP/非 Git 项目"
+        exit /b 0
     )
-    exit /b 0
 )
-
-echo 配置 Git 网络参数...
-echo 配置 Git 网络参数...>> "%LOG_FILE%"
-
-git config --global http.version HTTP/1.1 >> "%LOG_FILE%" 2>&1
-git config --global core.compression 0 >> "%LOG_FILE%" 2>&1
-git config --global http.postBuffer 524288000 >> "%LOG_FILE%" 2>&1
 
 echo 开始克隆 SillyTavern...
 echo 开始克隆 SillyTavern...>> "%LOG_FILE%"
 
-git clone --depth 1 "https://github.com/SillyTavern/SillyTavern.git" "%PROJECT_DIR%" >> "%LOG_FILE%" 2>&1
+call :CloneSillyTavernWithFallback
 if not errorlevel 1 (
     if exist "%PROJECT_DIR%\start.bat" exit /b 0
 )
 
-echo Git 克隆失败，删除半成品并尝试 ZIP 下载...
-echo Git 克隆失败，删除半成品并尝试 ZIP 下载...>> "%LOG_FILE%"
+echo Git 克隆失败，尝试 ZIP 下载...
+echo Git 克隆失败，尝试 ZIP 下载...>> "%LOG_FILE%"
 
 if exist "%PROJECT_DIR%" rmdir /s /q "%PROJECT_DIR%" >> "%LOG_FILE%" 2>&1
 
-call :DownloadFile "%ST_ZIP_URL%" "%ST_ZIP%"
+call :DownloadSillyTavernZipWithFallback
 if errorlevel 1 exit /b 1
 
 if not defined POWERSHELL_EXE (
@@ -589,13 +1141,21 @@ if exist "%ST_ZIP_DIR%" rmdir /s /q "%ST_ZIP_DIR%" >> "%LOG_FILE%" 2>&1
   "$zip=$env:ST_ZIP;" ^
   "$out=$env:ST_ZIP_DIR;" ^
   "$dst=$env:PROJECT_DIR;" ^
+  "if(Test-Path -LiteralPath $out){Remove-Item -LiteralPath $out -Recurse -Force};" ^
   "Expand-Archive -LiteralPath $zip -DestinationPath $out -Force;" ^
   "$src=Get-ChildItem -LiteralPath $out -Directory | Select-Object -First 1;" ^
   "if(!$src){throw 'ZIP 解压后未找到项目目录'};" ^
+  "if(Test-Path -LiteralPath $dst){Remove-Item -LiteralPath $dst -Recurse -Force};" ^
   "Move-Item -LiteralPath $src.FullName -Destination $dst -Force;" >> "%LOG_FILE%" 2>&1
 
 if errorlevel 1 exit /b 1
-if not exist "%PROJECT_DIR%\start.bat" exit /b 1
+
+call :ValidateExtractedProject
+if errorlevel 1 (
+    echo 解压后的项目缺少关键文件。
+    echo 解压后的项目缺少关键文件。>> "%LOG_FILE%"
+    exit /b 1
+)
 
 exit /b 0
 
@@ -609,7 +1169,7 @@ if not exist "%PROJECT_DIR%\start.bat" (
 echo 正在启动 SillyTavern...
 echo 正在启动 SillyTavern...>> "%LOG_FILE%"
 
-start "SillyTavern" cmd /k "cd /d ""%PROJECT_DIR%"" && call start.bat & echo. & echo SillyTavern 已退出或启动失败，请查看上方错误。 & echo. & pause"
+start "SillyTavern" cmd /k "cd /d ""%PROJECT_DIR%"" && set ""NPM_CONFIG_USERCONFIG=%INSTALLER_NPMRC%"" && call start.bat & echo. & echo SillyTavern 已退出或启动失败，请查看上方错误。 & echo. & pause"
 
 echo 已启动 SillyTavern。
 echo 已启动 SillyTavern。>> "%LOG_FILE%"
