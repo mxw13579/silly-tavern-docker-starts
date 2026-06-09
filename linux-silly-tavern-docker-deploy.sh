@@ -1056,6 +1056,8 @@ write_sillytavern_config() {
   local enable_external_access="$1"
   local config_username="${2:-}"
   local config_password="${3:-}"
+  local config_path="${APP_DIR}/config/config.yaml"
+  local config_tmp=""
 
   if [[ "${enable_external_access}" == "y" ]]; then
     validate_credential "${config_username}" || fatal "用户名格式非法。"
@@ -1063,9 +1065,12 @@ write_sillytavern_config() {
   fi
 
   "${SUDO[@]}" mkdir -p "${APP_DIR}/config"
+  if ! config_tmp="$("${SUDO[@]}" mktemp "${config_path}.XXXXXX")"; then
+    fatal "Failed to create temporary SillyTavern config."
+  fi
 
   if [[ "${enable_external_access}" == "y" ]]; then
-    cat <<EOF | "${SUDO[@]}" tee "${APP_DIR}/config/config.yaml" >/dev/null
+    if ! cat <<EOF | "${SUDO[@]}" tee "${config_tmp}" >/dev/null
 dataRoot: ./data
 cardsCacheCapacity: 100
 listen: true
@@ -1086,8 +1091,12 @@ basicAuthUser:
   username: "${config_username}"
   password: "${config_password}"
 EOF
+    then
+      "${SUDO[@]}" rm -f "${config_tmp}" 2>/dev/null || true
+      fatal "Failed to write SillyTavern config."
+    fi
   else
-    cat <<'EOF' | "${SUDO[@]}" tee "${APP_DIR}/config/config.yaml" >/dev/null
+    if ! cat <<'EOF' | "${SUDO[@]}" tee "${config_tmp}" >/dev/null
 dataRoot: ./data
 cardsCacheCapacity: 100
 listen: true
@@ -1108,8 +1117,16 @@ basicAuthUser:
   username: ""
   password: ""
 EOF
+    then
+      "${SUDO[@]}" rm -f "${config_tmp}" 2>/dev/null || true
+      fatal "Failed to write SillyTavern config."
+    fi
   fi
 
+  if ! "${SUDO[@]}" mv "${config_tmp}" "${config_path}"; then
+    "${SUDO[@]}" rm -f "${config_tmp}" 2>/dev/null || true
+    fatal "Failed to replace SillyTavern config."
+  fi
   "${SUDO[@]}" chown -R 1000:1000 "${APP_DIR}/config" || true
 }
 
@@ -1117,6 +1134,8 @@ generate_compose_file() {
   local enable_external_access="$1"
   local enable_watchtower="${2:-n}"
   local bind_host="127.0.0.1"
+  local compose_path="${APP_DIR}/docker-compose.yaml"
+  local compose_tmp=""
 
   if [[ "${enable_external_access}" == "y" ]]; then
     bind_host="0.0.0.0"
@@ -1131,8 +1150,11 @@ generate_compose_file() {
   fi
 
   prepare_app_dirs
+  if ! compose_tmp="$("${SUDO[@]}" mktemp "${compose_path}.XXXXXX")"; then
+    fatal "Failed to create temporary docker-compose.yaml."
+  fi
 
-  cat <<EOF | "${SUDO[@]}" tee "${APP_DIR}/docker-compose.yaml" >/dev/null
+  if ! cat <<EOF | "${SUDO[@]}" tee "${compose_tmp}" >/dev/null
 services:
   sillytavern:
     image: ${sillytavern_image}
@@ -1145,9 +1167,13 @@ services:
       - ./extensions:/home/node/app/public/scripts/extensions/third-party:rw
     restart: always
 EOF
+  then
+    "${SUDO[@]}" rm -f "${compose_tmp}" 2>/dev/null || true
+    fatal "Failed to write docker-compose.yaml."
+  fi
 
   if [[ "${enable_watchtower}" == "y" ]]; then
-    cat <<EOF | "${SUDO[@]}" tee -a "${APP_DIR}/docker-compose.yaml" >/dev/null
+    if ! cat <<EOF | "${SUDO[@]}" tee -a "${compose_tmp}" >/dev/null
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
@@ -1158,6 +1184,20 @@ EOF
     command: --interval 86400 --cleanup --label-enable
     restart: always
 EOF
+    then
+      "${SUDO[@]}" rm -f "${compose_tmp}" 2>/dev/null || true
+      fatal "Failed to write Watchtower compose block."
+    fi
+  fi
+
+  if ! "${SUDO[@]}" chmod 0644 "${compose_tmp}"; then
+    "${SUDO[@]}" rm -f "${compose_tmp}" 2>/dev/null || true
+    fatal "Failed to set docker-compose.yaml permissions."
+  fi
+
+  if ! "${SUDO[@]}" mv "${compose_tmp}" "${compose_path}"; then
+    "${SUDO[@]}" rm -f "${compose_tmp}" 2>/dev/null || true
+    fatal "Failed to replace docker-compose.yaml."
   fi
 
   log "SillyTavern 镜像: ${sillytavern_image}"
@@ -1184,7 +1224,6 @@ configure_sillytavern_interactive() {
   password=""
 
   confirm_watchtower
-  generate_compose_file "${ENABLE_EXTERNAL_ACCESS}" "${ENABLE_WATCHTOWER}"
 
   if [[ "${ENABLE_EXTERNAL_ACCESS}" == "y" ]]; then
     log "请选择用户名密码生成方式:"
@@ -1221,7 +1260,8 @@ configure_sillytavern_interactive() {
     log "未开启外网访问，仅允许本机访问端口。"
   fi
 
-  prepare_app_dirs
+  # Keep public port binding behind a completed Basic Auth configuration.
+  generate_compose_file "${ENABLE_EXTERNAL_ACCESS}" "${ENABLE_WATCHTOWER}"
 }
 
 print_final_info() {
