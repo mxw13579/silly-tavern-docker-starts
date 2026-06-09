@@ -27,7 +27,7 @@ status_docker() {
     echo -e "     └─ Compose: ${C_YELLOW}未检测到${C_RESET}"
   fi
 
-  if [[ -f /etc/docker/daemon.json ]] && grep -q "registry-mirrors" /etc/docker/daemon.json; then
+  if declare -F docker_registry_mirrors_configured >/dev/null && docker_registry_mirrors_configured; then
     echo -e "     └─ 镜像加速: ${C_GREEN}已配置${C_RESET}"
   else
     echo -e "     └─ 镜像加速: ${C_YELLOW}未配置${C_RESET}"
