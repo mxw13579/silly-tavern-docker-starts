@@ -27,6 +27,16 @@ find_latest_access_backup() {
   "${SUDO[@]}" find "${backup_root}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1
 }
 
+access_sillytavern_cli_path() {
+  local scripts_dir="${__st_scripts_dir:-}"
+
+  if [[ -z "${scripts_dir}" ]]; then
+    scripts_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+  fi
+
+  printf '%s/sillytavern.sh\n' "${scripts_dir}"
+}
+
 restore_access_files_from_backup() {
   local backup_dir="$1"
 
@@ -104,7 +114,7 @@ change_access_st() {
 restore_access_st() {
   ensure_interactive_tty
 
-  local backup_dir answer restart_answer
+  local backup_dir answer
   backup_dir="$(find_latest_access_backup || true)"
   [[ -n "${backup_dir}" ]] || fatal "未找到访问配置备份: ${APP_DIR}/backups/config"
   [[ -f "${backup_dir}/docker-compose.yaml" ]] || fatal "备份缺少 docker-compose.yaml: ${backup_dir}"
@@ -118,14 +128,25 @@ restore_access_st() {
   fi
 
   "${SUDO[@]}" mkdir -p "${APP_DIR}/config"
-  "${SUDO[@]}" cp -a "${backup_dir}/docker-compose.yaml" "${ST_COMPOSE_FILE}"
-  "${SUDO[@]}" cp -a "${backup_dir}/config.yaml" "${ST_CONFIG_FILE}"
+  restore_access_files_from_backup "${backup_dir}"
 
-  msg_ok "访问配置已恢复。"
-  read_yes_no "是否现在重启 SillyTavern 使配置生效？(y/n): " restart_answer
-  if [[ "${restart_answer}" == "y" ]]; then
-    restart_st
-  else
-    msg_warn "已跳过重启，请稍后手动重启 SillyTavern。"
+  msg_info "访问配置文件已从备份恢复: ${backup_dir}"
+  msg_info "正在校验并应用恢复后的 SillyTavern Compose 配置..."
+  if ! validate_sillytavern_compose; then
+    msg_error "访问配置文件已从备份恢复，但 Compose 尚未应用。"
+    msg_error "备份目录: ${backup_dir}"
+    msg_error "建议命令: bash \"$(access_sillytavern_cli_path)\" validate"
+    msg_error "修复校验问题后，请重新运行 restore_access 或手动应用 Compose 变更。"
+    return 1
   fi
+
+  if ! apply_compose_changes_st --skip-validation; then
+    msg_error "访问配置文件已恢复且校验通过，但 Compose 应用失败。"
+    msg_error "备份目录: ${backup_dir}"
+    msg_error "建议命令: bash \"$(access_sillytavern_cli_path)\" validate"
+    msg_error "请检查 Docker Compose 输出后重新运行 restore_access，或手动应用 Compose 变更。"
+    return 1
+  fi
+
+  msg_ok "访问配置已恢复并成功应用。"
 }

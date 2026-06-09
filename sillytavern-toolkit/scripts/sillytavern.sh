@@ -26,6 +26,8 @@ __st_scripts_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 . "${__st_scripts_dir}/common.sh"
 # shellcheck source=sillytavern-toolkit/scripts/sillytavern/compose.sh
 . "${__st_scripts_dir}/sillytavern/compose.sh"
+# shellcheck source=sillytavern-toolkit/scripts/sillytavern/validation.sh
+. "${__st_scripts_dir}/sillytavern/validation.sh"
 # shellcheck source=sillytavern-toolkit/scripts/sillytavern/config.sh
 . "${__st_scripts_dir}/sillytavern/config.sh"
 # shellcheck source=sillytavern-toolkit/scripts/sillytavern/access.sh
@@ -63,6 +65,7 @@ usage() {
 
 命令:
   install          全新安装 SillyTavern
+  validate         校验 SillyTavern Compose 配置并检查 config 文件存在
   start            启动
   stop             停止
   restart          重启
@@ -86,6 +89,9 @@ EOF
 case "${1:-}" in
   install)
     install_st
+    ;;
+  validate)
+    validate_sillytavern_compose
     ;;
   start)
     start_st

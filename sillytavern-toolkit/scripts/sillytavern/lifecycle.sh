@@ -35,6 +35,7 @@ install_st() {
   else
     configure_sillytavern_interactive
   fi
+  validate_sillytavern_compose --skip-docker-check || return 1
   compose_in_app "拉取 Docker 镜像" pull
   compose_in_app "启动 SillyTavern 服务" up -d
   print_final_info
@@ -43,6 +44,7 @@ install_st() {
 start_st() {
   check_docker_env || return 1
   [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "未找到 SillyTavern 安装，请先全新安装。"
+  validate_sillytavern_compose --skip-docker-check || return 1
   compose_in_app "启动 SillyTavern 服务" up -d
   msg_ok "SillyTavern 已启动。"
 }
@@ -62,8 +64,13 @@ restart_st() {
 }
 
 apply_compose_changes_st() {
+  local skip_validation="${1:-}"
+
   check_docker_env || return 1
-  [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "Missing SillyTavern compose file."
+  [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "未找到 SillyTavern Compose 文件。"
+  if [[ "${skip_validation}" != "--skip-validation" ]]; then
+    validate_sillytavern_compose --skip-docker-check || return 1
+  fi
 
   local compose_args=(up -d --remove-orphans)
   if [[ "${ST_FORCE_RECREATE:-0}" == "1" ]]; then
@@ -77,6 +84,7 @@ apply_compose_changes_st() {
 update_st() {
   check_docker_env || return 1
   [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "未找到 SillyTavern 安装。"
+  validate_sillytavern_compose --skip-docker-check || return 1
   compose_in_app "拉取最新镜像" pull
   compose_in_app "使用新镜像启动服务" up -d
   msg_ok "SillyTavern 更新并重启完成。"
