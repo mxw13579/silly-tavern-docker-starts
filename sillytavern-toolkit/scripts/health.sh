@@ -6,6 +6,10 @@ ST_TOOLKIT_SKIP_COUNTRY=1
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
+if [[ "${ST_TOOLKIT_TEST_MODE:-0}" == "1" && "${ST_TOOLKIT_TEST_SUDO:-0}" == "1" ]]; then
+  SUDO=(sudo)
+fi
+
 HEALTH_OK_COUNT=0
 HEALTH_WARN_COUNT=0
 HEALTH_FAIL_COUNT=0
@@ -23,6 +27,14 @@ warn() {
 fail() {
   HEALTH_FAIL_COUNT=$((HEALTH_FAIL_COUNT + 1))
   msg_error "$*"
+}
+
+health_compose() {
+  "${SUDO[@]}" "${COMPOSE_CMD[@]}" "$@"
+}
+
+health_compose_in_app() {
+  (cd "${APP_DIR}" && health_compose "$@")
 }
 
 section() {
@@ -80,7 +92,7 @@ fi
 if [[ "${docker_available}" == "true" ]] && detect_compose_cmd; then
   compose_available=true
   ok "Compose 可用: ${COMPOSE_CMD[*]}"
-  "${COMPOSE_CMD[@]}" version 2>/dev/null || true
+  health_compose version 2>/dev/null || true
 else
   fail "未检测到 docker compose 或 docker-compose"
 fi
@@ -92,7 +104,7 @@ show_file_status "配置文件" "${ST_CONFIG_FILE}"
 
 section "容器状态"
 if [[ "${docker_running}" == "true" && "${compose_available}" == "true" && -f "${ST_COMPOSE_FILE}" ]]; then
-  container_id="$(cd "${APP_DIR}" && "${COMPOSE_CMD[@]}" ps -q sillytavern 2>/dev/null || true)"
+  container_id="$(health_compose_in_app ps -q sillytavern 2>/dev/null || true)"
   if [[ -n "${container_id}" ]]; then
     ok "SillyTavern 容器 ID: ${container_id}"
     "${SUDO[@]}" docker inspect --format '名称={{.Name}} 状态={{.State.Status}} 重启次数={{.RestartCount}} 健康={{if .State.Health}}{{.State.Health.Status}}{{else}}未配置{{end}}' "${container_id}" 2>/dev/null || true
@@ -100,7 +112,7 @@ if [[ "${docker_running}" == "true" && "${compose_available}" == "true" && -f "$
     warn "未找到 sillytavern 服务容器"
   fi
 
-  (cd "${APP_DIR}" && "${COMPOSE_CMD[@]}" ps 2>/dev/null) || true
+  health_compose_in_app ps 2>/dev/null || true
 else
   warn "跳过容器状态检查：Docker/Compose/Compose 文件不完整"
 fi
@@ -129,7 +141,7 @@ fi
 section "最近日志"
 if [[ "${docker_running}" == "true" && "${compose_available}" == "true" && -f "${ST_COMPOSE_FILE}" ]]; then
   msg_info "最近 50 行日志:"
-  (cd "${APP_DIR}" && "${COMPOSE_CMD[@]}" logs --tail 50 sillytavern 2>/dev/null) || warn "无法读取 sillytavern 日志"
+  health_compose_in_app logs --tail 50 sillytavern 2>/dev/null || warn "无法读取 sillytavern 日志"
 else
   warn "跳过日志检查：Docker/Compose/Compose 文件不完整"
 fi
