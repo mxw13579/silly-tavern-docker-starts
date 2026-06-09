@@ -61,6 +61,19 @@ restart_st() {
   msg_ok "SillyTavern 已重启。"
 }
 
+apply_compose_changes_st() {
+  check_docker_env || return 1
+  [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "Missing SillyTavern compose file."
+
+  local compose_args=(up -d --remove-orphans)
+  if [[ "${ST_FORCE_RECREATE:-0}" == "1" ]]; then
+    compose_args+=(--force-recreate)
+  fi
+
+  compose_in_app "Apply SillyTavern Compose config" "${compose_args[@]}" || return 1
+  msg_ok "SillyTavern Compose config applied."
+}
+
 update_st() {
   check_docker_env || return 1
   [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "未找到 SillyTavern 安装。"
