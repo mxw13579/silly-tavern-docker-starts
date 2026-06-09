@@ -1061,10 +1061,6 @@ if errorlevel 1 (
 
 git -C "%PROJECT_DIR%" checkout release >> "%LOG_FILE%" 2>&1
 if errorlevel 1 (
-    git -C "%PROJECT_DIR%" checkout -B release FETCH_HEAD >> "%LOG_FILE%" 2>&1
-)
-
-if errorlevel 1 (
     echo 无法切换到 release 分支，跳过更新。
     echo 无法切换到 release 分支，跳过更新。>> "%LOG_FILE%"
     set "PROJECT_SOURCE_USED=已有 Git 项目，无法切换 release"
@@ -1073,9 +1069,8 @@ if errorlevel 1 (
 
 git -C "%PROJECT_DIR%" merge --ff-only FETCH_HEAD >> "%LOG_FILE%" 2>&1
 if errorlevel 1 (
-    echo release 分支无法快进合并，跳过更新。
-    echo release 分支无法快进合并，跳过更新。>> "%LOG_FILE%"
-    set "PROJECT_SOURCE_USED=已有 Git 项目，无法快进更新"
+    call :ReportGitUpdateSkipped "release 分支无法快进合并（merge --ff-only FETCH_HEAD 失败）"
+    set "PROJECT_SOURCE_USED=已有 Git 项目，未更新（无法快进，仍在旧版本）"
     exit /b 0
 )
 
@@ -1086,6 +1081,64 @@ if errorlevel 1 (
 )
 
 set "PROJECT_SOURCE_USED=已有 Git 项目，已更新 release（%FETCH_SOURCE_USED%）"
+exit /b 0
+
+
+:ReportGitUpdateSkipped
+set "UPDATE_SKIP_REASON=%~1"
+set "UPDATE_SKIP_STATUS_FILE_CREATED=0"
+if not defined STATUS_FILE (
+    set "STATUS_FILE=%TEMP%\sillytavern_git_status_%RANDOM%.tmp"
+    set "UPDATE_SKIP_STATUS_FILE_CREATED=1"
+)
+set "CURRENT_HEAD="
+set "TARGET_HEAD="
+
+for /f "tokens=*" %%H in ('git -C "%PROJECT_DIR%" rev-parse HEAD 2^>nul') do set "CURRENT_HEAD=%%H"
+for /f "tokens=*" %%H in ('git -C "%PROJECT_DIR%" rev-parse FETCH_HEAD 2^>nul') do set "TARGET_HEAD=%%H"
+
+if not defined CURRENT_HEAD set "CURRENT_HEAD=无法读取"
+if not defined TARGET_HEAD set "TARGET_HEAD=无法读取"
+
+echo.
+echo 警告：SillyTavern 未更新，仍在旧版本。
+echo 原因：%UPDATE_SKIP_REASON%
+echo Fetch 来源: %FETCH_SOURCE_USED%
+echo 当前 commit: %CURRENT_HEAD%
+echo 目标 FETCH_HEAD: %TARGET_HEAD%
+echo Git 状态摘要:
+echo.
+echo 警告：SillyTavern 未更新，仍在旧版本。>> "%LOG_FILE%"
+echo 原因：%UPDATE_SKIP_REASON%>> "%LOG_FILE%"
+echo Fetch 来源: %FETCH_SOURCE_USED%>> "%LOG_FILE%"
+echo 当前 commit: %CURRENT_HEAD%>> "%LOG_FILE%"
+echo 目标 FETCH_HEAD: %TARGET_HEAD%>> "%LOG_FILE%"
+echo Git 状态摘要:>> "%LOG_FILE%"
+
+git -C "%PROJECT_DIR%" status --short --branch > "%STATUS_FILE%" 2>> "%LOG_FILE%"
+if errorlevel 1 (
+    echo   无法读取 git status 摘要。
+    echo   无法读取 git status 摘要。>> "%LOG_FILE%"
+) else (
+    type "%STATUS_FILE%"
+    type "%STATUS_FILE%" >> "%LOG_FILE%"
+)
+
+echo.
+echo 处理建议:
+echo 1. 如果你有本地修改或本地提交，请先备份，再手动处理分支差异。
+echo 2. 如果你只想使用官方 release，请重新下载到空目录，或确认备份后手动执行：
+echo    git fetch origin release
+echo    git checkout -B release FETCH_HEAD
+echo    git remote set-url origin "%ST_GIT_URL%"
+echo.
+echo 处理建议:>> "%LOG_FILE%"
+echo 1. 如果你有本地修改或本地提交，请先备份，再手动处理分支差异。>> "%LOG_FILE%"
+echo 2. 如果你只想使用官方 release，请重新下载到空目录，或确认备份后手动执行：>> "%LOG_FILE%"
+echo    git fetch origin release>> "%LOG_FILE%"
+echo    git checkout -B release FETCH_HEAD>> "%LOG_FILE%"
+echo    git remote set-url origin "%ST_GIT_URL%">> "%LOG_FILE%"
+if "%UPDATE_SKIP_STATUS_FILE_CREATED%"=="1" if exist "%STATUS_FILE%" del /f /q "%STATUS_FILE%" >nul 2>&1
 exit /b 0
 
 
