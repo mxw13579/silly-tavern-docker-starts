@@ -52,42 +52,77 @@ start_st() {
 stop_st() {
   check_docker_env || return 1
   [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "未找到 SillyTavern 安装。"
-  compose_in_app "停止 SillyTavern 服务" down
-  msg_ok "SillyTavern 已停止。"
+  compose_in_app "停止 SillyTavern 容器" stop || return 1
+  msg_ok "SillyTavern 容器已停止，Compose 项目和数据目录已保留。"
+}
+
+down_st() {
+  check_docker_env || return 1
+  [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "未找到 SillyTavern 安装。"
+
+  if (($# > 0)); then
+    fatal "down 不接受额外参数。"
+  fi
+
+  compose_in_app "停止并移除 SillyTavern Compose 容器/网络" down || return 1
+  msg_ok "SillyTavern Compose 容器/网络已停止并移除，应用目录和绑定挂载数据目录已保留。"
 }
 
 restart_st() {
   check_docker_env || return 1
   [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "未找到 SillyTavern 安装。"
-  compose_in_app "重启 SillyTavern 服务" restart
-  msg_ok "SillyTavern 已重启。"
+  compose_in_app "重启 SillyTavern 容器" restart || return 1
+  msg_ok "SillyTavern 容器已重启。此操作只重启现有容器，不会应用 Compose 配置变更；如修改了配置，请执行 apply。"
 }
 
-apply_compose_changes_st() {
-  local skip_validation="${1:-}"
+_apply_compose_changes_st_impl() {
+  local skip_validation="$1"
 
   check_docker_env || return 1
   [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "未找到 SillyTavern Compose 文件。"
-  if [[ "${skip_validation}" != "--skip-validation" ]]; then
-    validate_sillytavern_compose --skip-docker-check || return 1
-  fi
+  case "${skip_validation}" in
+    0)
+      validate_sillytavern_compose --skip-docker-check || return 1
+      ;;
+    1)
+      ;;
+    *)
+      fatal "_apply_compose_changes_st_impl skip_validation must be 0 or 1."
+      ;;
+  esac
 
   local compose_args=(up -d --remove-orphans)
   if [[ "${ST_FORCE_RECREATE:-0}" == "1" ]]; then
     compose_args+=(--force-recreate)
   fi
 
-  compose_in_app "Apply SillyTavern Compose config" "${compose_args[@]}" || return 1
-  msg_ok "SillyTavern Compose config applied."
+  compose_in_app "应用 SillyTavern Compose 配置变更" "${compose_args[@]}" || return 1
+  msg_ok "SillyTavern Compose 配置变更已应用。"
+}
+
+apply_compose_changes_st() {
+  if (($# > 0)); then
+    fatal "apply 不接受额外参数。"
+  fi
+
+  _apply_compose_changes_st_impl 0
+}
+
+apply_compose_changes_without_validation_st() {
+  if (($# > 0)); then
+    fatal "apply_compose_changes_without_validation_st 不接受额外参数。"
+  fi
+
+  _apply_compose_changes_st_impl 1
 }
 
 update_st() {
   check_docker_env || return 1
   [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "未找到 SillyTavern 安装。"
   validate_sillytavern_compose --skip-docker-check || return 1
-  compose_in_app "拉取最新镜像" pull
-  compose_in_app "使用新镜像启动服务" up -d
-  msg_ok "SillyTavern 更新并重启完成。"
+  compose_in_app "拉取最新镜像" pull || return 1
+  compose_in_app "使用新镜像运行 up -d" up -d || return 1
+  msg_ok "SillyTavern 已完成镜像更新并运行 up -d。"
 }
 
 logs_st() {

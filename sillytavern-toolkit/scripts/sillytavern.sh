@@ -6,6 +6,7 @@ NON_INTERACTIVE=0
 while (($# > 0)); do
   case "$1" in
     --non-interactive|-n)
+      # shellcheck disable=SC2034
       NON_INTERACTIVE=1
       shift
       ;;
@@ -23,18 +24,25 @@ fi
 __st_scripts_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=sillytavern-toolkit/scripts/common.sh
+# shellcheck disable=SC1091
 . "${__st_scripts_dir}/common.sh"
 # shellcheck source=sillytavern-toolkit/scripts/sillytavern/compose.sh
+# shellcheck disable=SC1091
 . "${__st_scripts_dir}/sillytavern/compose.sh"
 # shellcheck source=sillytavern-toolkit/scripts/sillytavern/validation.sh
+# shellcheck disable=SC1091
 . "${__st_scripts_dir}/sillytavern/validation.sh"
 # shellcheck source=sillytavern-toolkit/scripts/sillytavern/config.sh
+# shellcheck disable=SC1091
 . "${__st_scripts_dir}/sillytavern/config.sh"
 # shellcheck source=sillytavern-toolkit/scripts/sillytavern/access.sh
+# shellcheck disable=SC1091
 . "${__st_scripts_dir}/sillytavern/access.sh"
 # shellcheck source=sillytavern-toolkit/scripts/sillytavern/lifecycle.sh
+# shellcheck disable=SC1091
 . "${__st_scripts_dir}/sillytavern/lifecycle.sh"
 # shellcheck source=sillytavern-toolkit/scripts/sillytavern/status.sh
+# shellcheck disable=SC1091
 . "${__st_scripts_dir}/sillytavern/status.sh"
 
 parse_bool_env() {
@@ -56,6 +64,7 @@ parse_bool_env() {
 }
 
 if parse_bool_env ST_NON_INTERACTIVE; then
+  # shellcheck disable=SC2034
   NON_INTERACTIVE=1
 fi
 
@@ -66,10 +75,12 @@ usage() {
 命令:
   install          全新安装 SillyTavern
   validate         校验 SillyTavern Compose 配置并检查 config 文件存在
-  start            启动
-  stop             停止
-  restart          重启
-  update           更新镜像并重启
+  start            启动 SillyTavern 服务
+  stop             停止容器，不删除 Compose 项目
+  down             停止并移除 Compose 容器/网络，保留应用目录和绑定挂载数据
+  apply            校验并应用 Compose 配置变更，移除孤儿容器
+  restart          重启现有容器，不应用 Compose 配置变更
+  update           校验配置、拉取镜像并运行 up -d
   logs             查看实时日志
   backup           备份数据目录
   change_access    修改访问模式/用户名密码/Watchtower
@@ -97,12 +108,32 @@ case "${1:-}" in
     start_st
     ;;
   stop)
+    shift
+    if (($# > 0)); then
+      fatal "stop 不接受额外参数。"
+    fi
     stop_st
     ;;
+  down)
+    shift
+    down_st "$@"
+    ;;
+  apply)
+    shift
+    apply_compose_changes_st "$@"
+    ;;
   restart)
+    shift
+    if (($# > 0)); then
+      fatal "restart 不接受额外参数。"
+    fi
     restart_st
     ;;
   update)
+    shift
+    if (($# > 0)); then
+      fatal "update 不接受额外参数。"
+    fi
     update_st
     ;;
   logs)

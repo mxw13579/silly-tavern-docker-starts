@@ -2,7 +2,7 @@
 
 # 说明：
 # - 本文件会被 sillytavern.sh 作为子模块 source。
-# - 依赖 common.sh 与其他 sillytavern 子模块提供的函数（如 configure_sillytavern_* / apply_compose_changes_st）。
+# - 依赖 common.sh 与其他 sillytavern 子模块提供的函数（如 configure_sillytavern_* / apply_compose_changes_st / apply_compose_changes_without_validation_st）。
 
 backup_access_config() {
   [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "未找到 Compose 文件，无法创建访问配置备份。"
@@ -140,7 +140,7 @@ restore_access_st() {
     return 1
   fi
 
-  if ! apply_compose_changes_st --skip-validation; then
+  if ! apply_compose_changes_without_validation_st; then
     msg_error "访问配置文件已恢复且校验通过，但 Compose 应用失败。"
     msg_error "备份目录: ${backup_dir}"
     msg_error "建议命令: bash \"$(access_sillytavern_cli_path)\" validate"
