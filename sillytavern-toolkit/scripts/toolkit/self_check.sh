@@ -274,7 +274,7 @@ main() {
     scripts/lib/packages.sh scripts/sillytavern/compose.sh \
     scripts/sillytavern/validation.sh scripts/sillytavern/config.sh \
     scripts/sillytavern/access.sh scripts/sillytavern/lifecycle.sh \
-    scripts/sillytavern/status.sh scripts/docker/install.sh \
+    scripts/sillytavern/logs.sh scripts/sillytavern/status.sh scripts/docker/install.sh \
     scripts/docker/mirror.sh scripts/docker/compose.sh scripts/docker/status.sh \
     scripts/sources/precheck.sh scripts/sources/backup.sh \
     scripts/sources/providers.sh scripts/sources/status.sh
@@ -288,7 +288,8 @@ main() {
 
   for syntax_file in \
     scripts/toolkit/self_check.sh scripts/common.sh scripts/health.sh \
-    scripts/sillytavern.sh scripts/docker.sh scripts/sources.sh
+    scripts/sillytavern.sh scripts/docker.sh scripts/sources.sh \
+    scripts/sillytavern/logs.sh
   do
     check_bash_syntax "${syntax_file}"
   done

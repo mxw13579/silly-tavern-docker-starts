@@ -173,6 +173,12 @@ run_action() {
   return 0
 }
 
+show_sillytavern_logs_entry() {
+  msg_info "显示最近日志快照。实时跟随: bash ${SCRIPT_DIR}/scripts/sillytavern.sh logs follow"
+  msg_info "导出日志: bash ${SCRIPT_DIR}/scripts/sillytavern.sh logs save --output /path/to/sillytavern.log"
+  "${SCRIPT_DIR}/scripts/sillytavern.sh" logs tail
+}
+
 handle_empty_choice() {
   msg_warn "请输入菜单编号。"
   sleep 0.8
@@ -287,15 +293,16 @@ sillytavern_menu() {
     echo "   5. 重启现有容器（不应用配置变更）"
     echo "   6. 校验并应用 Compose 配置变更"
     echo "   7. 校验配置、拉取镜像并运行 up -d"
-    echo "   8. 查看 SillyTavern 实时日志"
+    echo "   8. 日志查看/导出入口"
     echo "   9. 备份 SillyTavern 数据"
     echo "  10. 修改访问模式/用户名密码/Watchtower"
     echo "  11. 恢复上一次访问配置"
-    echo "  12. 运行健康检查"
-    echo "  13. 显示部署信息"
+    echo "  12. 工具箱自检"
+    echo "  13. 运行健康检查"
+    echo "  14. 显示部署信息"
     echo "   0. 返回主菜单"
     print_sep
-    read_menu_choice choice "请输入选项 [0-13]: "
+    read_menu_choice choice "请输入选项 [0-14]: "
     read_code=$?
     if ((read_code != 0)); then
       if ((read_code == 2)); then
@@ -313,12 +320,13 @@ sillytavern_menu() {
       5) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" restart ;;
       6) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" apply ;;
       7) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" update ;;
-      8) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sillytavern.sh" logs ;;
+      8) run_action --pause-on-success show_sillytavern_logs_entry ;;
       9) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sillytavern.sh" backup ;;
       10) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sillytavern.sh" change_access ;;
       11) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" restore_access ;;
-      12) run_action --pause-on-success bash "${SCRIPT_DIR}/scripts/health.sh" ;;
-      13) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sillytavern.sh" info ;;
+      12) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sillytavern.sh" self-check ;;
+      13) run_action --pause-on-success bash "${SCRIPT_DIR}/scripts/health.sh" ;;
+      14) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sillytavern.sh" info ;;
       0) break ;;
       *) msg_error "无效选项"; pause_to_continue ;;
     esac

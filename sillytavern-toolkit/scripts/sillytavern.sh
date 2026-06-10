@@ -16,12 +16,17 @@ while (($# > 0)); do
   esac
 done
 
+__st_scripts_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ "${1:-}" == "self-check" || "${1:-}" == "check" ]]; then
+  shift
+  exec bash "${__st_scripts_dir}/toolkit/self_check.sh" "$@"
+fi
+
 if [[ "${1:-}" == "status" ]]; then
   export ST_TOOLKIT_REQUIRE_SUDO=0
   export ST_TOOLKIT_SKIP_COUNTRY=1
 fi
-
-__st_scripts_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=sillytavern-toolkit/scripts/common.sh
 # shellcheck disable=SC1091
@@ -41,6 +46,9 @@ __st_scripts_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=sillytavern-toolkit/scripts/sillytavern/lifecycle.sh
 # shellcheck disable=SC1091
 . "${__st_scripts_dir}/sillytavern/lifecycle.sh"
+# shellcheck source=sillytavern-toolkit/scripts/sillytavern/logs.sh
+# shellcheck disable=SC1091
+. "${__st_scripts_dir}/sillytavern/logs.sh"
 # shellcheck source=sillytavern-toolkit/scripts/sillytavern/status.sh
 # shellcheck disable=SC1091
 . "${__st_scripts_dir}/sillytavern/status.sh"
@@ -81,12 +89,24 @@ usage() {
   apply            校验并应用 Compose 配置变更，移除孤儿容器
   restart          重启现有容器，不应用 Compose 配置变更
   update           校验配置、拉取镜像并运行 up -d
-  logs             查看实时日志
+  logs             查看、跟随、按时间筛选或导出日志
   backup           备份数据目录
   change_access    修改访问模式/用户名密码/Watchtower
   restore_access   恢复上一次访问配置
   info             显示部署信息
   status           显示状态
+  self-check       只读自检工具箱文件、依赖和本机运行环境
+  check            self-check 的别名
+
+日志子命令:
+  logs tail --lines 200
+  logs follow --lines 100
+  logs since 30m --lines 1000
+  logs save --output /path/to/sillytavern.log
+
+self-check 选项:
+  --strict          将 WARN 视为非零结果
+  --quiet           隐藏 PASS 明细，只输出 WARN/FAIL/summary
 
 非交互环境变量:
   ST_NON_INTERACTIVE=1
@@ -137,7 +157,12 @@ case "${1:-}" in
     update_st
     ;;
   logs)
-    logs_st
+    shift
+    logs_st "$@"
+    ;;
+  self-check|check)
+    shift
+    bash "${__st_scripts_dir}/toolkit/self_check.sh" "$@"
     ;;
   backup)
     backup_st

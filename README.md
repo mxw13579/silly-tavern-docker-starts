@@ -439,9 +439,15 @@ docker compose up -d
 ```bash
 bash ~/sillytavern-toolkit/scripts/sillytavern.sh status
 bash ~/sillytavern-toolkit/scripts/sillytavern.sh info
-bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs tail --lines 200
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs follow --lines 100
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs since 30m --lines 1000
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs save --output ~/sillytavern.log
 bash ~/sillytavern-toolkit/scripts/sillytavern.sh change_access
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh self-check
 ```
+
+`self-check` 是只读诊断入口，用于检查工具箱文件、Bash 语法、基础命令和本机 Docker/Compose 可见性；它不会执行 self-update、下载、`git pull` 或容器生命周期操作。
 
 ---
 
