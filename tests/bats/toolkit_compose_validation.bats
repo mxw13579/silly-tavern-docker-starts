@@ -320,14 +320,14 @@ write_valid_st_files() {
     ensure_interactive_tty() { return 0; }
     read_yes_no() { local __answer_var="$2"; printf -v "${__answer_var}" y; }
     validate_sillytavern_compose() { printf "validate\n" >>"${BATS_TEST_TMPDIR}/order"; }
-    apply_compose_changes_st() { printf "apply:%s\n" "$*" >>"${BATS_TEST_TMPDIR}/order"; }
+    apply_compose_changes_without_validation_st() { printf "apply:%s\n" "$*" >>"${BATS_TEST_TMPDIR}/order"; }
     restart_st() { printf "restart\n" >>"${BATS_TEST_TMPDIR}/order"; return 99; }
 
     restore_access_st
   '
 
   assert_status_eq 0
-  [[ "$(cat "${BATS_TEST_TMPDIR}/order")" == $'validate\napply:--skip-validation' ]]
+  [[ "$(cat "${BATS_TEST_TMPDIR}/order")" == $'validate\napply:' ]]
   [[ "$(cat "${BATS_TEST_TMPDIR}/st_app/docker-compose.yaml")" == "old compose" ]]
   [[ "$(cat "${BATS_TEST_TMPDIR}/st_app/config/config.yaml")" == "old config" ]]
 }
@@ -352,7 +352,7 @@ write_valid_st_files() {
     ensure_interactive_tty() { return 0; }
     read_yes_no() { local __answer_var="$2"; printf -v "${__answer_var}" y; }
     validate_sillytavern_compose() { printf "validate\n" >>"${BATS_TEST_TMPDIR}/order"; return 31; }
-    apply_compose_changes_st() { printf "apply\n" >>"${BATS_TEST_TMPDIR}/order"; return 0; }
+    apply_compose_changes_without_validation_st() { printf "apply\n" >>"${BATS_TEST_TMPDIR}/order"; return 0; }
     restart_st() { printf "restart\n" >>"${BATS_TEST_TMPDIR}/order"; return 99; }
 
     restore_access_st
@@ -386,14 +386,14 @@ write_valid_st_files() {
     ensure_interactive_tty() { return 0; }
     read_yes_no() { local __answer_var="$2"; printf -v "${__answer_var}" y; }
     validate_sillytavern_compose() { printf "validate\n" >>"${BATS_TEST_TMPDIR}/order"; return 0; }
-    apply_compose_changes_st() { printf "apply:%s\n" "$*" >>"${BATS_TEST_TMPDIR}/order"; return 32; }
+    apply_compose_changes_without_validation_st() { printf "apply:%s\n" "$*" >>"${BATS_TEST_TMPDIR}/order"; return 32; }
     restart_st() { printf "restart\n" >>"${BATS_TEST_TMPDIR}/order"; return 99; }
 
     restore_access_st
   '
 
   [[ "${status}" -ne 0 ]]
-  [[ "$(cat "${BATS_TEST_TMPDIR}/order")" == $'validate\napply:--skip-validation' ]]
+  [[ "$(cat "${BATS_TEST_TMPDIR}/order")" == $'validate\napply:' ]]
   assert_output_contains "Compose"
   assert_output_contains "应用失败"
   assert_output_contains "备份目录"

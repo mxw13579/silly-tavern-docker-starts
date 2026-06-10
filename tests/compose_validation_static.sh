@@ -44,9 +44,10 @@ grep -F -- "validate         校验 SillyTavern Compose 配置并检查 config �
 grep -F -- "validate)" "${cli_file}" >/dev/null
 grep -F -- "validate_sillytavern_compose" "${lifecycle_file}" >/dev/null
 grep -F -- "validate_sillytavern_compose --skip-docker-check" "${lifecycle_file}" >/dev/null
-grep -F -- '--skip-validation' "${lifecycle_file}" >/dev/null
+grep -F -- "_apply_compose_changes_st_impl()" "${lifecycle_file}" >/dev/null
+grep -F -- "apply_compose_changes_without_validation_st()" "${lifecycle_file}" >/dev/null
 grep -F -- "validate_sillytavern_compose" "${access_file}" >/dev/null
-grep -F -- "apply_compose_changes_st" "${access_file}" >/dev/null
+grep -F -- "apply_compose_changes_without_validation_st" "${access_file}" >/dev/null
 
 if grep -F -- "validate         校验 SillyTavern compose/config" "${cli_file}" >/dev/null; then
   echo "validate usage text must not imply config.yaml content parsing" >&2
@@ -72,7 +73,12 @@ access_restore_body="$(
 )"
 
 grep -F -- "validate_sillytavern_compose" <<<"${access_restore_body}" >/dev/null
-grep -F -- "apply_compose_changes_st --skip-validation" <<<"${access_restore_body}" >/dev/null
+grep -F -- "apply_compose_changes_without_validation_st" <<<"${access_restore_body}" >/dev/null
+
+if grep -F -- "_apply_compose_changes_st_impl" <<<"${access_restore_body}" >/dev/null; then
+  echo "restore_access_st body must not depend on private compose apply implementation" >&2
+  exit 1
+fi
 
 if grep -F -- "restart_st" <<<"${access_restore_body}" >/dev/null; then
   echo "restore_access_st body must not call restart_st" >&2
