@@ -158,7 +158,7 @@ bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mxw13
 
 - 软件源管理：查看当前软件源状态，切换阿里云、腾讯云、华为云软件源，恢复最近一次备份的软件源。
 - Docker 环境管理：安装或修复 Docker 与 Docker Compose，重启 Docker 服务，查看本机 Docker 镜像。
-- SillyTavern 应用管理：全新安装、启动、停止、重启、更新镜像并重启、查看实时日志、备份数据、修改访问配置、恢复上一次访问配置、运行健康检查、显示部署信息。
+- SillyTavern 应用管理：全新安装、启动、停止容器、停止并移除容器/网络、重启现有容器、应用配置变更、更新镜像并运行、查看实时日志、备份数据、修改访问配置、恢复上一次访问配置、运行健康检查、显示部署信息。
 
 工具箱进入主菜单和子菜单时会刷新系统环境、软件源、Docker 与 SillyTavern 状态，可用于快速健康检查。
 
@@ -401,21 +401,35 @@ docker compose ps
 docker compose logs -f
 ```
 
-重启服务：
+重启现有容器（不应用 Compose 配置变更）：
 
 ```bash
 docker compose restart
 ```
 
-停止服务：
+停止容器（保留 Compose 项目、网络和数据目录）：
+
+```bash
+docker compose stop
+```
+
+停止并移除 Compose 容器/网络（保留数据目录）：
 
 ```bash
 docker compose down
 ```
 
-重新拉取镜像并启动：
+校验并应用 Compose 配置变更：
 
 ```bash
+docker compose config -q
+docker compose up -d --remove-orphans
+```
+
+重新拉取镜像并运行：
+
+```bash
+docker compose config -q
 docker compose pull
 docker compose up -d
 ```
