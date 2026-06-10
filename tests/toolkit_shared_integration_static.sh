@@ -4,6 +4,7 @@ set -euo pipefail
 cli_file="sillytavern-toolkit/scripts/sillytavern.sh"
 menu_file="sillytavern-toolkit/st-toolkit.sh"
 self_check_file="sillytavern-toolkit/scripts/toolkit/self_check.sh"
+self_check_bats_file="tests/bats/toolkit_self_check.bats"
 
 fail() {
   echo "$*" >&2
@@ -21,8 +22,9 @@ assert_file_contains() {
 [[ -f "${cli_file}" ]] || fail "sillytavern.sh must exist"
 [[ -f "${menu_file}" ]] || fail "st-toolkit.sh must exist"
 [[ -f "${self_check_file}" ]] || fail "self_check.sh must exist"
+[[ -f "${self_check_bats_file}" ]] || fail "toolkit_self_check.bats must exist"
 
-for syntax_file in "${cli_file}" "${menu_file}" "${self_check_file}"; do
+for syntax_file in "${cli_file}" "${menu_file}" "${self_check_file}" "${self_check_bats_file}"; do
   bash -n "${syntax_file}"
 done
 
@@ -64,6 +66,15 @@ assert_file_contains "${menu_file}" '"${SCRIPT_DIR}/scripts/sillytavern.sh" self
 
 assert_file_contains "${self_check_file}" "scripts/sillytavern/logs.sh" \
   "self-check must include logs module in file/syntax checks"
+assert_file_contains "${self_check_bats_file}" "scripts/sillytavern/logs.sh" \
+  "self-check Bats healthy fixture must create logs.sh"
+assert_file_contains "${self_check_bats_file}" "#@test" \
+  "self-check Bats tests must use the project registration marker"
+
+if grep -E -- '^function[[:space:]]+test_[^{]+[[:space:]]*\{' "${self_check_bats_file}" |
+  grep -Fv -- '#@test' >/dev/null; then
+  fail "self-check Bats test functions must be registered with #@test"
+fi
 
 if grep -E -- 'self-update|self_update|update_toolkit|download|git[[:space:]]+(pull|fetch|merge|checkout|reset)' "${self_check_file}" >/dev/null; then
   fail "self-check must not contain update, download, or git mutation behavior"

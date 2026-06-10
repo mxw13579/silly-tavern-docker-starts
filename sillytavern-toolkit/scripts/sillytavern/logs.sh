@@ -65,6 +65,12 @@ logs_parse_common_option() {
           "use --service sillytavern or --all-services"
         return 2
       }
+      if [[ "${2}" == -* ]]; then
+        logs_error "invalid --service value: ${2}" \
+          "option-shaped service names can be interpreted as Docker Compose options" \
+          "use a Compose service name that does not start with '-'"
+        return 2
+      fi
       if [[ "${LOGS_ALL_SERVICES}" == "1" ]]; then
         logs_error "--service cannot be used with --all-services" \
           "Compose would receive conflicting service targeting" \
@@ -327,6 +333,13 @@ logs_run_save() {
     output_was_default=1
   fi
 
+  if [[ -d "${output_path}" ]]; then
+    logs_error "output path is a directory: ${output_path}" \
+      "logs save needs a file path and would otherwise hide the saved artifact name" \
+      "choose a file path such as ${output_path%/}/sillytavern.log"
+    return 1
+  fi
+
   local output_dir tmp_file
   output_dir="$(dirname -- "${output_path}")"
   if [[ ! -d "${output_dir}" ]]; then
@@ -355,7 +368,13 @@ logs_run_save() {
   logs_append_service_args
 
   if logs_compose_in_app "${LOGS_COMPOSE_ARGS[@]}" >"${tmp_file}"; then
-    mv -f "${tmp_file}" "${output_path}"
+    if ! mv -f "${tmp_file}" "${output_path}"; then
+      rm -f "${tmp_file}"
+      logs_error "failed to finalize log file: ${output_path}" \
+        "Docker Compose logs were captured but the final file move failed" \
+        "check the target path permissions and retry logs save"
+      return 1
+    fi
     msg_ok "Logs saved: ${output_path}"
     msg_info "Attach this file when asking for support."
     return 0
@@ -366,13 +385,20 @@ logs_run_save() {
 }
 
 logs_dispatch() {
-  check_docker_env || return 1
-  [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "SillyTavern install not found; missing ${ST_COMPOSE_FILE}."
-
   local subcommand="${1:-tail}"
   if (($# > 0)); then
     shift
   fi
+
+  case "${subcommand}" in
+    help|--help|-h)
+      logs_usage
+      return 0
+      ;;
+  esac
+
+  check_docker_env || return 1
+  [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "SillyTavern install not found; missing ${ST_COMPOSE_FILE}."
 
   case "${subcommand}" in
     tail)
@@ -386,9 +412,6 @@ logs_dispatch() {
       ;;
     save)
       logs_run_save "$@"
-      ;;
-    help|--help|-h)
-      logs_usage
       ;;
     *)
       logs_error "unknown logs subcommand: ${subcommand}" \

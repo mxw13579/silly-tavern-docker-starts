@@ -24,7 +24,7 @@ setup_self_check_fixture() {
     scripts/lib/packages.sh scripts/sillytavern/compose.sh \
     scripts/sillytavern/validation.sh scripts/sillytavern/config.sh \
     scripts/sillytavern/access.sh scripts/sillytavern/lifecycle.sh \
-    scripts/sillytavern/status.sh scripts/docker/install.sh \
+    scripts/sillytavern/logs.sh scripts/sillytavern/status.sh scripts/docker/install.sh \
     scripts/docker/mirror.sh scripts/docker/compose.sh scripts/docker/status.sh \
     scripts/sources/precheck.sh scripts/sources/backup.sh \
     scripts/sources/providers.sh scripts/sources/status.sh
@@ -46,7 +46,13 @@ run_self_check() {
     bash sillytavern-toolkit/scripts/toolkit/self_check.sh "$@"
 }
 
-function test_healthy_fixture_exits_0_and_prints_final_summary {
+function test_healthy_fixture_contains_logs_module { #@test
+  setup_self_check_fixture
+
+  [[ -f "${ST_TOOLKIT_SELF_CHECK_ROOT}/scripts/sillytavern/logs.sh" ]]
+}
+
+function test_healthy_fixture_exits_0_and_prints_final_summary { #@test
   local stub_dir
   stub_dir="$(make_stub_dir)"
   write_exe "${stub_dir}/docker" \
@@ -65,7 +71,7 @@ function test_healthy_fixture_exits_0_and_prints_final_summary {
   assert_output_contains "PASS"
 }
 
-function test_missing_required_toolkit_file_exits_nonzero_with_problem_impact_and_fix {
+function test_missing_required_toolkit_file_exits_nonzero_with_problem_impact_and_fix { #@test
   setup_self_check_fixture
   rm -f "${ST_TOOLKIT_SELF_CHECK_ROOT}/scripts/common.sh"
 
@@ -79,7 +85,7 @@ function test_missing_required_toolkit_file_exits_nonzero_with_problem_impact_an
   assert_output_contains "scripts/common.sh"
 }
 
-function test_missing_optional_dependency_warns_and_exits_0_by_default {
+function test_missing_optional_dependency_warns_and_exits_0_by_default { #@test
   setup_self_check_fixture
   mkdir -p "${BATS_TEST_TMPDIR}/minimal-bin"
   for cmd in bash find sed grep awk chmod mkdir cp rm; do
@@ -94,7 +100,7 @@ function test_missing_optional_dependency_warns_and_exits_0_by_default {
   assert_output_contains "curl"
 }
 
-function test_strict_exits_nonzero_on_warnings {
+function test_strict_exits_nonzero_on_warnings { #@test
   setup_self_check_fixture
   mkdir -p "${BATS_TEST_TMPDIR}/minimal-bin"
   for cmd in bash find sed grep awk chmod mkdir cp rm; do
@@ -108,7 +114,7 @@ function test_strict_exits_nonzero_on_warnings {
   assert_output_contains "summary:"
 }
 
-function test_quiet_mode_suppresses_passing_detail_but_keeps_summary_and_warnings {
+function test_quiet_mode_suppresses_passing_detail_but_keeps_summary_and_warnings { #@test
   setup_self_check_fixture
   mkdir -p "${BATS_TEST_TMPDIR}/minimal-bin"
   for cmd in bash find sed grep awk chmod mkdir cp rm; do
@@ -124,7 +130,7 @@ function test_quiet_mode_suppresses_passing_detail_but_keeps_summary_and_warning
   [[ "${output}" != *"PASS required command available: bash"* ]]
 }
 
-function test_docker_absent_is_warn_not_fail {
+function test_docker_absent_is_warn_not_fail { #@test
   setup_self_check_fixture
   mkdir -p "${BATS_TEST_TMPDIR}/minimal-bin"
   for cmd in bash find sed grep awk chmod mkdir cp rm; do
@@ -138,7 +144,7 @@ function test_docker_absent_is_warn_not_fail {
   assert_output_contains "WARN Docker CLI"
 }
 
-function test_compose_discovery_supports_docker_compose_stub {
+function test_compose_discovery_supports_docker_compose_stub { #@test
   local stub_dir
   stub_dir="$(make_stub_dir)"
   write_exe "${stub_dir}/docker" \
@@ -154,7 +160,7 @@ function test_compose_discovery_supports_docker_compose_stub {
   assert_output_contains "docker compose"
 }
 
-function test_compose_discovery_supports_docker_compose_binary_stub {
+function test_compose_discovery_supports_docker_compose_binary_stub { #@test
   local stub_dir
   stub_dir="$(make_stub_dir)"
   write_exe "${stub_dir}/docker" \
@@ -173,7 +179,7 @@ function test_compose_discovery_supports_docker_compose_binary_stub {
   assert_output_contains "docker-compose"
 }
 
-function test_version_hint_uses_local_git_and_does_not_invoke_network_tools {
+function test_version_hint_uses_local_git_and_does_not_invoke_network_tools { #@test
   local stub_dir
   stub_dir="$(make_stub_dir)"
   write_exe "${stub_dir}/git" \

@@ -398,7 +398,10 @@ docker compose ps
 查看日志：
 
 ```bash
-docker compose logs -f
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs tail --lines 200
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs follow --lines 100
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs since 30m --lines 1000
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs save --output ~/sillytavern.log
 ```
 
 重启现有容器（不应用 Compose 配置变更）：

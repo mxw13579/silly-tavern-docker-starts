@@ -100,6 +100,36 @@ function logs_save_writes_through_temp_file_then_creates_output { #@test
   [[ "$(cat "${output_file}")" == "stub log line" ]]
 }
 
+function logs_save_rejects_existing_output_directory_before_compose_logs { #@test
+  local output_dir="${BATS_TEST_TMPDIR}/saved-dir"
+  mkdir -p "${output_dir}"
+
+  run run_logs save --output "${output_dir}" --lines 20
+
+  [[ "${status}" -ne 0 ]]
+  assert_output_contains "ERROR: problem:"
+  assert_output_contains "output path is a directory"
+  assert_no_compose_logs_call
+}
+
+function logs_save_reports_final_move_failure_and_removes_temp_file { #@test
+  local stub_dir output_file
+  stub_dir="$(make_stub_dir)"
+  output_file="${BATS_TEST_TMPDIR}/move-fails.log"
+  write_exe "${stub_dir}/mv" \
+    '#!/usr/bin/env bash' \
+    'exit 77'
+
+  run run_logs save --output "${output_file}" --lines 20
+
+  [[ "${status}" -ne 0 ]]
+  assert_output_contains "ERROR: problem:"
+  assert_output_contains "failed to finalize log file"
+  [[ "${output}" != *"Logs saved"* ]]
+  [[ ! -e "${output_file}" ]]
+  ! compgen -G "${BATS_TEST_TMPDIR}/.sillytavern_logs.*" >/dev/null
+}
+
 function logs_rejects_invalid_line_counts_before_compose_logs { #@test
   run run_logs tail --lines 0
 
@@ -132,6 +162,17 @@ function logs_rejects_missing_save_output_value_before_compose_logs { #@test
   assert_no_compose_logs_call
 }
 
+function logs_help_does_not_require_docker_or_install_state { #@test
+  rm -f "${APP_DIR}/docker-compose.yaml"
+  : >"${DOCKER_CALLS}"
+
+  run run_logs --help
+
+  assert_status_eq 0
+  assert_output_contains "Usage: sillytavern.sh logs"
+  [[ ! -s "${DOCKER_CALLS}" ]]
+}
+
 function logs_all_services_omits_service_argument { #@test
   run run_logs tail --lines 25 --all-services
 
@@ -144,4 +185,13 @@ function logs_service_appends_the_selected_service { #@test
 
   assert_status_eq 0
   assert_compose_call "compose logs --tail 25 watchtower"
+}
+
+function logs_rejects_option_shaped_service_before_compose_logs { #@test
+  run run_logs tail --lines 25 --service --tail
+
+  [[ "${status}" -ne 0 ]]
+  assert_output_contains "ERROR: problem:"
+  assert_output_contains "invalid --service value"
+  assert_no_compose_logs_call
 }
