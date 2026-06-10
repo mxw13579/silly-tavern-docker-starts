@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016
 set -euo pipefail
 
 logs_file="sillytavern-toolkit/scripts/sillytavern/logs.sh"

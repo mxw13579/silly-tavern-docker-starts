@@ -51,6 +51,8 @@ export ST_TOOLKIT_TEST_MODE="${ST_TOOLKIT_TEST_MODE:-1}"
 APP_DIR="${APP_DIR:-/data/docker/sillytavern}"
 ST_COMPOSE_FILE="${ST_COMPOSE_FILE:-${APP_DIR}/docker-compose.yaml}"
 ST_CONFIG_FILE="${ST_CONFIG_FILE:-${APP_DIR}/config/config.yaml}"
+# Used by sourced lib/compose.sh during compose detection.
+# shellcheck disable=SC2034
 declare -ag SUDO=()
 declare -ag COMPOSE_CMD=()
 
@@ -210,7 +212,6 @@ check_docker_discovery() {
       "install Docker before using container lifecycle commands"
   fi
 
-  SUDO=()
   if detect_compose_cmd; then
     record_check PASS "Compose available: ${COMPOSE_CMD[*]}"
   else
