@@ -126,10 +126,13 @@ update_st() {
 }
 
 logs_st() {
-  check_docker_env || return 1
-  [[ -f "${ST_COMPOSE_FILE}" ]] || fatal "未找到 SillyTavern 安装。"
-  msg_info "正在显示 SillyTavern 实时日志，按 Ctrl+C 退出。"
-  (cd "${APP_DIR}" && "${SUDO[@]}" "${COMPOSE_CMD[@]}" logs -f sillytavern)
+  local logs_module_dir
+  logs_module_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+  # shellcheck source=sillytavern-toolkit/scripts/sillytavern/logs.sh
+  # shellcheck disable=SC1091
+  . "${logs_module_dir}/logs.sh"
+  logs_dispatch "$@"
 }
 
 backup_st() {
