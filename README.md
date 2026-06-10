@@ -589,7 +589,7 @@ docker compose ps
 查看日志：
 
 ```bash
-docker compose logs -f
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs follow --lines 100
 ```
 
 ---
