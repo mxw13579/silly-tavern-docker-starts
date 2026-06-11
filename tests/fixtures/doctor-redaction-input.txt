@@ -1,0 +1,23 @@
+basicAuthUser:
+  username: "doctorBasicUserOne"
+  password: "doctorBasicPassOne"
+ST_AUTH_USER=doctorEnvUserOne
+ST_AUTH_PASS=doctorEnvPassOne
+Authorization: Bearer doctorBearerTokenOne
+Proxy-Authorization: Basic doctorProxyTokenOne
+Cookie: session=doctorCookieOne; theme=dark
+Set-Cookie: session=doctorSetCookieOne; HttpOnly
+X-API-Key: doctorHeaderApiKeyOne
+token: "doctorYamlTokenOne"
+Secret=doctorShellSecretOne
+api_key: doctorSnakeApiKeyOne
+MixedCaseToken = doctorMixedTokenOne
+jsonish={"token":"doctorJsonTokenOne","secret":"doctorJsonSecretOne","api_key":"doctorJsonApiKeyOne"}
+mirror=https://doctorUrlUserOne:doctorUrlPassOne@example.com/path?token=doctorQueryTokenOne&key=doctorQueryKeyOne&api_key=doctorQueryApiKeyOne&safe=kept
+git=https://doctorUrlUserOnly@example.org/repo.git?access_token=doctorAccessTokenOne
+HOME=/home/doctorHomeUserOne
+USER=doctorOsUserOne
+APP_DIR=/home/doctorHomeUserOne/apps/sillytavern
+windows_profile=C:\Users\Doctor WinUser\AppData\Roaming\SillyTavern\config.yaml
+log_line=Authorization: Bearer doctorLogBearerOne Cookie: doctorLogCookieOne token=doctorLogTokenOne
+safe_system_path=/data/docker/sillytavern/docker-compose.yaml
