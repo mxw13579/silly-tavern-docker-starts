@@ -48,4 +48,4 @@
 
 ## Verdict
 
-PASS for the feasible polish gate. The branch is ship-ready if the known `BATS_NOT_FOUND` environment gap is accepted.
+PASS for the feasible polish gate. Local ship completed later; the known `BATS_NOT_FOUND` environment gap remains recorded.
