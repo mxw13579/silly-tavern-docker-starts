@@ -92,7 +92,8 @@ assert_section_order() {
   ' "${BATS_TEST_TMPDIR}/report.md"
 }
 
-@test "doctor-report and doctor help return before Docker sudo country and APP_DIR checks" {
+# doctor-report and doctor help return before Docker sudo country and APP_DIR checks
+function doctor_report_and_doctor_help_return_before_checks { #@test
   rm -rf "${APP_DIR}"
 
   run_doctor doctor-report --help
@@ -112,7 +113,8 @@ assert_section_order() {
   assert_no_probe_calls
 }
 
-@test "doctor-report rejects option errors before writing or probing" {
+# doctor-report rejects option errors before writing or probing
+function doctor_report_rejects_option_errors_before_writing_or_probing { #@test
   for args in \
     "doctor-report --unknown" \
     "doctor-report --output" \
@@ -134,7 +136,8 @@ assert_section_order() {
   done
 }
 
-@test "doctor-report stdout prints ordered markdown and does not write a file" {
+# doctor-report stdout prints ordered markdown and does not write a file
+function doctor_report_stdout_prints_ordered_markdown_and_does_not_write_file { #@test
   run_doctor doctor-report --stdout --lines 2
 
   assert_status_eq 0
@@ -149,7 +152,8 @@ assert_section_order() {
   assert_no_default_report_file
 }
 
-@test "doctor-report default output writes private HOME timestamped markdown report" {
+# doctor-report default output writes private HOME timestamped markdown report
+function doctor_report_default_output_writes_private_home_report { #@test
   run_doctor doctor-report --no-logs
 
   assert_status_eq 0
@@ -167,7 +171,8 @@ assert_section_order() {
   [[ "${mode}" == "600" || "${mode}" == "400" ]]
 }
 
-@test "doctor-report output path writes chosen file while stdout writes no file" {
+# doctor-report output path writes chosen file while stdout writes no file
+function doctor_report_output_path_writes_chosen_file_without_stdout_file { #@test
   local report_file="${BATS_TEST_TMPDIR}/chosen-doctor.md"
 
   run_doctor doctor-report --output "${report_file}" --no-logs
@@ -186,7 +191,8 @@ assert_section_order() {
   assert_no_default_report_file
 }
 
-@test "doctor-report composes logs and service options without hard-coded update or info behavior" {
+# doctor-report composes logs and service options without hard-coded update or info behavior
+function doctor_report_composes_logs_and_service_options_only { #@test
   run_doctor doctor-report --stdout --service watchtower --lines 3 --since 30m
 
   assert_status_eq 0
@@ -200,7 +206,8 @@ assert_section_order() {
   [[ "${output}" != *"print_final_info"* ]]
 }
 
-@test "doctor-report no-logs prevents log collection and full compose config leakage" {
+# doctor-report no-logs prevents log collection and full compose config leakage
+function doctor_report_no_logs_prevents_log_collection_and_config_leakage { #@test
   run_doctor doctor-report --stdout --no-logs --all-services
 
   assert_status_eq 0

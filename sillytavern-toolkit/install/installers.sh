@@ -44,6 +44,7 @@ install_from_proxy() {
       "install/installers.sh"
       "st-toolkit.sh"
       "scripts/common.sh"
+      "scripts/doctor_report.sh"
       "scripts/docker.sh"
       "scripts/health.sh"
       "scripts/sillytavern.sh"
@@ -71,7 +72,9 @@ install_from_proxy() {
       "scripts/sillytavern/compose.sh"
       "scripts/sillytavern/access.sh"
       "scripts/sillytavern/lifecycle.sh"
+      "scripts/sillytavern/logs.sh"
       "scripts/sillytavern/status.sh"
+      "scripts/toolkit/self_check.sh"
     )
 
     local file parent_dir

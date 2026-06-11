@@ -158,7 +158,7 @@ bash -c "$(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mxw13
 
 - 软件源管理：查看当前软件源状态，切换阿里云、腾讯云、华为云软件源，恢复最近一次备份的软件源。
 - Docker 环境管理：安装或修复 Docker 与 Docker Compose，重启 Docker 服务，查看本机 Docker 镜像。
-- SillyTavern 应用管理：全新安装、启动、停止容器、停止并移除容器/网络、重启现有容器、应用配置变更、更新镜像并运行、查看实时日志、备份数据、修改访问配置、恢复上一次访问配置、运行健康检查、显示部署信息。
+- SillyTavern 应用管理：全新安装、启动、停止容器、停止并移除容器/网络、重启现有容器、应用配置变更、更新镜像并运行、查看实时日志、备份数据、修改访问配置、恢复上一次访问配置、生成诊断报告、运行健康检查、显示部署信息。
 
 工具箱进入主菜单和子菜单时会刷新系统环境、软件源、Docker 与 SillyTavern 状态，可用于快速健康检查。
 
@@ -240,6 +240,35 @@ bash ~/sillytavern-toolkit/scripts/sillytavern.sh install
 - `ST_ENABLE_WATCHTOWER=1|0`：是否启用 Watchtower。
 
 外网访问模式会先校验用户名和密码，再写入 `docker-compose.yaml` 和 `config/config.yaml`，避免未配置 Basic Auth 时暴露公网端口。
+
+### 诊断报告
+
+`SillyTavern 应用管理 -> 生成诊断报告` 会生成一份 Markdown 诊断报告，便于求助或排查部署状态。报告包含工具箱文件状态、基础系统信息、Docker/Compose 可见性、SillyTavern 部署文件状态、访问配置摘要、Compose `config -q` 校验证据和最近日志。
+
+默认输出到当前用户家目录，文件名类似：
+
+```text
+~/sillytavern_doctor_report_20260101_120000.md
+```
+
+也可以直接调用：
+
+```bash
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh doctor-report
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh doctor-report --output ~/st-doctor.md
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh doctor-report --stdout --no-logs
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh doctor-report --service watchtower --lines 100 --since 30m
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh doctor --all-services
+```
+
+诊断报告会对常见敏感信息做脱敏，包括认证头、Cookie、URL 用户信息、token/key/secret/password 字段、`ST_AUTH_USER`、`ST_AUTH_PASS`、用户家目录和用户名。生成报告前仍建议自行复核内容。
+
+退出码语义：
+
+- `0`：报告生成成功，报告内部可能记录 WARN/FAIL 诊断项。
+- `2`：参数错误、输出路径不可用或报告文件写入失败。
+
+诊断报告是只读入口，不修复、不回滚、不更新、不启动或停止容器；不会运行健康检查脚本，也不会探测公网 IP。
 
 ### 健康检查
 
@@ -448,9 +477,13 @@ bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs since 30m --lines 1000
 bash ~/sillytavern-toolkit/scripts/sillytavern.sh logs save --output ~/sillytavern.log
 bash ~/sillytavern-toolkit/scripts/sillytavern.sh change_access
 bash ~/sillytavern-toolkit/scripts/sillytavern.sh self-check
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh doctor-report
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh doctor-report --output ~/st-doctor.md
+bash ~/sillytavern-toolkit/scripts/sillytavern.sh doctor-report --stdout --no-logs
 ```
 
 `self-check` 是只读诊断入口，用于检查工具箱文件、Bash 语法、基础命令和本机 Docker/Compose 可见性；它不会执行 self-update、下载、`git pull` 或容器生命周期操作。
+`doctor-report` 是只读报告入口，用于生成可转交的 Markdown 诊断材料；它会脱敏常见凭据，默认写入 `~/sillytavern_doctor_report_YYYYmmdd_HHMMSS.md`，不会修复、回滚、更新、探测公网 IP 或执行容器生命周期操作。
 
 ---
 

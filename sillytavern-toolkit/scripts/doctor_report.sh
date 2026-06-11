@@ -5,7 +5,8 @@ DOCTOR_REPORT_MAX_LINES=5000
 
 doctor_report_usage() {
   cat <<'EOF'
-Usage: doctor_report_st [options]
+Usage: sillytavern.sh doctor-report [options]
+Alias: sillytavern.sh doctor [options]
 
 Options:
   --help                 Show this help
@@ -38,11 +39,29 @@ doctor_report_validate_lines() {
 }
 
 doctor_report_escape_sed_pattern() {
-  sed -e 's/[][\\.^$*+?{}()|#]/\\&/g' <<<"$1"
+  local value="$1"
+  local escaped=""
+  local char=""
+  local index=0
+
+  for ((index = 0; index < ${#value}; index++)); do
+    char="${value:index:1}"
+    case "${char}" in
+      '['|']'|'\\'|'.'|'^'|'$'|'*'|'+'|'?'|'{'|'}'|'('|')'|'|'|'#')
+        escaped+="\\${char}"
+        ;;
+      *)
+        escaped+="${char}"
+        ;;
+    esac
+  done
+
+  printf '%s' "${escaped}"
 }
 
-doctor_report_redact_stream() {
-  local app_dir="${DOCTOR_REPORT_APP_DIR:-${APP_DIR:-/data/docker/sillytavern}}"
+doctor_redact_stream() {
+  local default_app_dir="/data/docker/sillytavern"
+  local app_dir="${DOCTOR_REPORT_APP_DIR:-${APP_DIR:-${default_app_dir}}}"
   local home_value="${HOME:-}"
   local user_value="${USER:-${USERNAME:-}}"
   local app_dir_pattern=""
@@ -50,20 +69,22 @@ doctor_report_redact_stream() {
   local user_pattern=""
   local sed_args=()
 
-  [[ -z "${app_dir}" ]] || app_dir_pattern="$(doctor_report_escape_sed_pattern "${app_dir}")"
+  if [[ -n "${app_dir}" && "${app_dir}" != "${default_app_dir}" ]]; then
+    app_dir_pattern="$(doctor_report_escape_sed_pattern "${app_dir}")"
+  fi
   [[ -z "${home_value}" ]] || home_pattern="$(doctor_report_escape_sed_pattern "${home_value}")"
   [[ -z "${user_value}" ]] || user_pattern="$(doctor_report_escape_sed_pattern "${user_value}")"
 
   sed_args=(
     -E
-    -e 's#((["'\'']?(Authorization|Proxy-Authorization|Cookie|Set-Cookie|X-API-Key)["'\'']?[[:space:]]*[:=][[:space:]]*).*#\1<redacted>#Ig'
-    -e 's#((ST_AUTH_(USER|PASS))[[:space:]]*=[[:space:]]*).*#\1<redacted>#Ig'
-    -e 's#([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@[:space:]]+@#\1<redacted>@#g' \
-    -e 's#([?&][^=[:space:]&]*(token|key|api_key|apikey)[^=[:space:]&]*=)[^&[:space:]]+#\1<redacted>#Ig' \
-    -e 's#(^|[[:space:],{])(["'\'']?(username|password|token|secret|api_key|apikey|api-key)["'\'']?[[:space:]]*[:=][[:space:]]*).*#\1\2<redacted>#Ig'
-    -e 's#(^|[[:space:]])(HOME|APP_DIR|USER|USERNAME|SUDO_USER)([[:space:]]*=[[:space:]]*).*#\1\2\3<redacted>#Ig' \
-    -e 's#[A-Za-z]:[\\/]+Users[\\/]+[^\\/[:space:]]+#<WINDOWS_PROFILE>#g' \
-    -e 's#/home/[^/[:space:]]+#<HOME>#g' \
+    -e 's#((["'\'']?(Authorization|Proxy-Authorization|Cookie|Set-Cookie|X-API-Key)["'\'']?[[:space:]]*[:=][[:space:]]*).*)#\1[REDACTED]#Ig'
+    -e 's#((ST_AUTH_(USER|PASS))[[:space:]]*=[[:space:]]*).*#\1[REDACTED]#Ig'
+    -e 's#([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@[:space:]]+@#\1[REDACTED]@#g'
+    -e 's#([?&][^=[:space:]&]*(token|key|api_key|apikey)[^=[:space:]&]*=)[^&[:space:]]+#\1[REDACTED]#Ig'
+    -e 's#(^|[[:space:],{])(["'\'']?(username|password|token|secret|api_key|apikey|api-key)["'\'']?[[:space:]]*[:=][[:space:]]*).*#\1\2[REDACTED]#Ig'
+    -e 's#(^|[[:space:]])(HOME|APP_DIR|USER|USERNAME|SUDO_USER)([[:space:]]*=[[:space:]]*).*#\1\2\3[REDACTED]#Ig'
+    -e 's#[A-Za-z]:[\\/]+Users[\\/]+[^\\/]+#<WINDOWS_PROFILE>#g'
+    -e 's#/home/[^/[:space:]]+#<HOME>#g'
     -e 's#/Users/[^/[:space:]]+#<HOME>#g'
   )
 
@@ -72,6 +93,10 @@ doctor_report_redact_stream() {
   [[ -z "${user_pattern}" ]] || sed_args+=(-e "s#(^|[[:space:]/\\\\])${user_pattern}($|[[:space:]/\\\\])#\\1<USER>\\2#g")
 
   sed "${sed_args[@]}"
+}
+
+doctor_report_redact_stream() {
+  doctor_redact_stream "$@"
 }
 
 doctor_report_write_raw() {
@@ -83,7 +108,7 @@ doctor_report_write_raw() {
 }
 
 doctor_report_emit() {
-  printf '%s\n' "$*" | doctor_report_redact_stream | doctor_report_write_raw
+  printf '%s\n' "$*" | doctor_redact_stream | doctor_report_write_raw
 }
 
 doctor_report_emit_blank() {
@@ -92,18 +117,20 @@ doctor_report_emit_blank() {
 
 doctor_report_command_string() {
   local part
+
   for part in "$@"; do
     printf '%q ' "${part}"
   done
 }
 
-doctor_report_append_evidence() {
+doctor_report_add_evidence() {
   local purpose="$1"
   local exit_code="$2"
-  shift 2
   local command_text=""
+  shift 2
+
   command_text="$(doctor_report_command_string "$@")"
-  doctor_report_emit "- ${purpose}: exit=${exit_code}; command=${command_text% }"
+  DOCTOR_REPORT_EVIDENCE+=("- ${purpose}: exit=${exit_code}; command=${command_text% }")
 }
 
 doctor_report_append_block() {
@@ -111,51 +138,51 @@ doctor_report_append_block() {
 
   doctor_report_emit '```text'
   if [[ -n "${content}" ]]; then
-    printf '%s\n' "${content}" | doctor_report_redact_stream | doctor_report_write_raw
+    printf '%s\n' "${content}" | doctor_redact_stream | doctor_report_write_raw
   else
     doctor_report_emit '<no output>'
   fi
   doctor_report_emit '```'
 }
 
-doctor_report_run_capture() {
-  local title="$1"
-  shift
+doctor_report_capture_command() {
+  local purpose="$1"
+  local output_var="$2"
   local output=""
   local exit_code=0
+  shift 2
 
-  doctor_report_emit "### ${title}"
-  if output="$("$@" 2>&1)"; then
+  if output="$("$@" 2>&1); then
     exit_code=0
   else
     exit_code=$?
   fi
-  doctor_report_append_evidence "${title}" "${exit_code}" "$@"
+  printf -v "${output_var}" '%s' "${output}"
+  doctor_report_add_evidence "${purpose}" "${exit_code}" "$@"
+  return 0
+}
+
+doctor_report_append_captured_command() {
+  local title="$1"
+  local output=""
+  shift
+
+  doctor_report_emit "### ${title}"
+  doctor_report_capture_command "${title}" output "$@"
   doctor_report_append_block "${output}"
   doctor_report_emit_blank
-  return 0
 }
 
 doctor_report_read_file_capture() {
   local path="$1"
   local output=""
-  local exit_code=0
 
   if [[ -r "${path}" ]]; then
-    if output="$(cat -- "${path}" 2>&1)"; then
-      exit_code=0
-    else
-      exit_code=$?
-    fi
+    output="$(cat -- "${path}" 2>&1)"
   elif declare -p DOCTOR_REPORT_SUDO >/dev/null 2>&1 && ((${#DOCTOR_REPORT_SUDO[@]} > 0)); then
-    if output="$("${DOCTOR_REPORT_SUDO[@]}" cat -- "${path}" 2>&1)"; then
-      exit_code=0
-    else
-      exit_code=$?
-    fi
+    output="$("${DOCTOR_REPORT_SUDO[@]}" cat -- "${path}" 2>&1)"
   else
     output="file is not readable"
-    exit_code=1
   fi
 
   printf '%s\n' "${output}"
@@ -184,65 +211,110 @@ doctor_report_detect_compose() {
   return 1
 }
 
+doctor_report_compose_ps() {
+  local app_dir="$1"
+  shift
+
+  (cd "${app_dir}" && "$@" ps)
+}
+
 doctor_report_file_status() {
   local label="$1"
   local path="$2"
 
   if [[ -f "${path}" ]]; then
     doctor_report_emit "- PASS ${label}: file exists"
+  elif [[ -d "${path}" ]]; then
+    doctor_report_emit "- PASS ${label}: directory exists"
   elif [[ -e "${path}" ]]; then
-    doctor_report_emit "- FAIL ${label}: path exists but is not a regular file"
+    doctor_report_emit "- FAIL ${label}: path exists but has an unexpected type"
   else
     doctor_report_emit "- FAIL ${label}: missing"
   fi
 }
 
-doctor_report_append_file_metadata() {
-  local label="$1"
-  local path="$2"
-  local size="unknown"
-  local mode="unknown"
-  local hash="unavailable"
+doctor_report_append_summary() {
+  doctor_report_emit "## Summary"
+  doctor_report_file_status "APP_DIR" "${DOCTOR_REPORT_APP_DIR}"
+  doctor_report_file_status "Compose file" "${DOCTOR_REPORT_COMPOSE_FILE}"
+  doctor_report_file_status "Config file" "${DOCTOR_REPORT_CONFIG_FILE}"
+  if command -v docker >/dev/null 2>&1; then
+    doctor_report_emit "- PASS docker command found"
+  else
+    doctor_report_emit "- WARN docker command missing"
+  fi
+  if ((${#DOCTOR_REPORT_COMPOSE_CMD[@]} > 0)); then
+    doctor_report_emit "- PASS Docker Compose command found"
+  else
+    doctor_report_emit "- WARN Docker Compose command missing"
+  fi
+  doctor_report_emit "- Note: sensitive values were redacted"
+  doctor_report_emit "- Mode: read-only report generation"
+  doctor_report_emit_blank
+}
 
-  doctor_report_emit "### ${label}"
-  if [[ ! -e "${path}" ]]; then
-    doctor_report_emit "- Status: FAIL missing"
+doctor_report_append_environment() {
+  doctor_report_emit "## Environment"
+  doctor_report_emit "- Generated at: $(date '+%Y-%m-%d %H:%M:%S %z')"
+  doctor_report_append_captured_command "uname" uname -a
+  if [[ -f /etc/os-release ]]; then
+    doctor_report_append_captured_command "os-release" awk -F= '/^(PRETTY_NAME|ID|VERSION_ID)=/{print}' /etc/os-release
+  else
+    doctor_report_emit "### os-release"
+    doctor_report_emit "- WARN /etc/os-release missing"
+    doctor_report_emit_blank
+  fi
+}
+
+doctor_report_append_toolkit_self_check() {
+  local self_check_file="${DOCTOR_REPORT_SCRIPTS_DIR}/toolkit/self_check.sh"
+
+  doctor_report_emit "## Toolkit Self-check"
+  doctor_report_file_status "sillytavern.sh" "${DOCTOR_REPORT_SCRIPTS_DIR}/sillytavern.sh"
+  doctor_report_file_status "doctor_report.sh" "${DOCTOR_REPORT_SCRIPTS_DIR}/doctor_report.sh"
+  doctor_report_file_status "toolkit/self_check.sh" "${self_check_file}"
+  doctor_report_append_captured_command "sillytavern.sh syntax" bash -n "${DOCTOR_REPORT_SCRIPTS_DIR}/sillytavern.sh"
+  doctor_report_append_captured_command "doctor_report.sh syntax" bash -n "${DOCTOR_REPORT_SCRIPTS_DIR}/doctor_report.sh"
+  if [[ -f "${self_check_file}" ]]; then
+    doctor_report_append_captured_command "self_check.sh syntax" bash -n "${self_check_file}"
+  fi
+}
+
+doctor_report_append_docker_compose() {
+  doctor_report_emit "## Docker Compose"
+  if ! command -v docker >/dev/null 2>&1; then
+    doctor_report_emit "- WARN docker command not found"
     doctor_report_emit_blank
     return 0
   fi
 
-  if size="$(wc -c <"${path}" 2>/dev/null)"; then
-    size="${size//[[:space:]]/}"
+  doctor_report_append_captured_command "Docker Version" "${DOCTOR_REPORT_SUDO[@]}" docker --version
+  if ((${#DOCTOR_REPORT_COMPOSE_CMD[@]} > 0)); then
+    doctor_report_append_captured_command "Compose Version" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" version
+    if [[ -d "${DOCTOR_REPORT_APP_DIR}" ]]; then
+      doctor_report_append_captured_command "Compose PS" doctor_report_compose_ps "${DOCTOR_REPORT_APP_DIR}" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}"
+    fi
   else
-    size="unreadable"
+    doctor_report_emit "- WARN Docker Compose command not found"
+    doctor_report_emit_blank
   fi
+}
 
-  if mode="$(stat -c '%a %U:%G' "${path}" 2>/dev/null)"; then
-    :
-  elif mode="$(stat -f '%Lp %Su:%Sg' "${path}" 2>/dev/null)"; then
-    :
-  else
-    mode="unknown"
-  fi
-
-  if command -v sha256sum >/dev/null 2>&1; then
-    hash="$(sha256sum "${path}" 2>/dev/null | awk '{print $1}' || true)"
-  elif command -v shasum >/dev/null 2>&1; then
-    hash="$(shasum -a 256 "${path}" 2>/dev/null | awk '{print $1}' || true)"
-  fi
-  [[ -n "${hash}" ]] || hash="unavailable"
-
-  doctor_report_emit "- Path: ${path}"
-  doctor_report_emit "- Size bytes: ${size}"
-  doctor_report_emit "- Mode owner: ${mode}"
-  doctor_report_emit "- SHA256: ${hash}"
+doctor_report_append_sillytavern_status() {
+  doctor_report_emit "## SillyTavern Status"
+  doctor_report_file_status "APP_DIR" "${DOCTOR_REPORT_APP_DIR}"
+  doctor_report_file_status "Compose file" "${DOCTOR_REPORT_COMPOSE_FILE}"
+  doctor_report_file_status "Config file" "${DOCTOR_REPORT_CONFIG_FILE}"
+  doctor_report_emit "- APP_DIR: ${DOCTOR_REPORT_APP_DIR}"
+  doctor_report_emit "- Compose file: ${DOCTOR_REPORT_COMPOSE_FILE}"
+  doctor_report_emit "- Config file: ${DOCTOR_REPORT_CONFIG_FILE}"
   doctor_report_emit_blank
 }
 
-doctor_report_append_config_signals() {
+doctor_report_append_access_config() {
   local config_output=""
 
-  doctor_report_emit "### Config Signals"
+  doctor_report_emit "## Access Config"
   if [[ ! -f "${DOCTOR_REPORT_CONFIG_FILE}" ]]; then
     doctor_report_emit "- WARN config file missing"
     doctor_report_emit_blank
@@ -265,30 +337,48 @@ doctor_report_append_config_signals() {
   else
     doctor_report_emit "- enableCorsProxy: unknown"
   fi
+
+  if grep -q 'basicAuthUser:' <<<"${config_output}"; then
+    doctor_report_emit "- basicAuthUser block: present"
+  else
+    doctor_report_emit "- basicAuthUser block: not found"
+  fi
   doctor_report_emit_blank
 }
 
-doctor_report_compose_validation() {
+doctor_report_append_mirror_config() {
+  doctor_report_emit "## Mirror Config"
+  doctor_report_emit "- Toolkit China mirror flag: ${USE_CHINA_MIRROR:-unknown}"
+  doctor_report_emit "- Public IP probe: not run"
+  if [[ -f /etc/docker/daemon.json ]]; then
+    doctor_report_file_status "Docker daemon config" "/etc/docker/daemon.json"
+  else
+    doctor_report_emit "- Docker daemon config: not found"
+  fi
+  doctor_report_emit_blank
+}
+
+doctor_report_append_compose_validation() {
   local exit_code=0
 
-  doctor_report_emit "### Compose Validation"
+  doctor_report_emit "## Compose Validation"
   if ((${#DOCTOR_REPORT_COMPOSE_CMD[@]} == 0)); then
     doctor_report_emit "- WARN Docker Compose command unavailable; validation skipped"
-    doctor_report_append_evidence "Compose validation" "skipped" docker compose config -q
+    doctor_report_add_evidence "Compose validation" "skipped" docker compose config -q
     doctor_report_emit_blank
     return 0
   fi
 
   if [[ ! -d "${DOCTOR_REPORT_APP_DIR}" ]]; then
     doctor_report_emit "- FAIL APP_DIR missing; validation skipped"
-    doctor_report_append_evidence "Compose validation" "skipped" docker compose config -q
+    doctor_report_add_evidence "Compose validation" "skipped" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" config -q
     doctor_report_emit_blank
     return 0
   fi
 
   if [[ ! -f "${DOCTOR_REPORT_COMPOSE_FILE}" ]]; then
     doctor_report_emit "- FAIL Compose file missing; validation skipped"
-    doctor_report_append_evidence "Compose validation" "skipped" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" config -q
+    doctor_report_add_evidence "Compose validation" "skipped" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" config -q
     doctor_report_emit_blank
     return 0
   fi
@@ -300,60 +390,33 @@ doctor_report_compose_validation() {
   fi
 
   doctor_report_emit "- docker compose config -q exit code: ${exit_code}"
-  doctor_report_append_evidence "Compose validation" "${exit_code}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" config -q
+  doctor_report_add_evidence "Compose validation" "${exit_code}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" config -q
   doctor_report_emit_blank
 }
 
-doctor_report_append_docker_signals() {
-  doctor_report_emit "## Docker Signals"
-  if ! command -v docker >/dev/null 2>&1; then
-    doctor_report_emit "- WARN docker command not found"
-    doctor_report_emit_blank
-    return 0
-  fi
-
-  doctor_report_run_capture "Docker Version" "${DOCTOR_REPORT_SUDO[@]}" docker --version
-
-  if ((${#DOCTOR_REPORT_COMPOSE_CMD[@]} > 0)); then
-    doctor_report_run_capture "Compose Version" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" version
-  else
-    doctor_report_emit "### Compose Version"
-    doctor_report_emit "- WARN Docker Compose command not found"
-    doctor_report_emit_blank
-  fi
-
-  if [[ -d "${DOCTOR_REPORT_APP_DIR}" ]] && ((${#DOCTOR_REPORT_COMPOSE_CMD[@]} > 0)); then
-    doctor_report_run_capture "Compose PS" bash -c 'cd "$1" && shift && "$@" ps' _ "${DOCTOR_REPORT_APP_DIR}" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}"
-  fi
-}
-
-doctor_report_append_logs() {
+doctor_report_collect_recent_logs() {
   local output=""
   local exit_code=0
   local logs_args=(logs --tail "${DOCTOR_REPORT_LINES}")
 
-  doctor_report_emit "## Logs"
+  DOCTOR_REPORT_LOGS_OUTPUT=""
+  DOCTOR_REPORT_LOGS_STATUS=""
+
   if [[ "${DOCTOR_REPORT_NO_LOGS}" == "1" ]]; then
-    doctor_report_emit "- Logs skipped by --no-logs"
-    doctor_report_emit "### Command Evidence"
-    doctor_report_append_evidence "Logs capture" "skipped" docker compose logs
-    doctor_report_emit_blank
+    DOCTOR_REPORT_LOGS_STATUS="- Logs skipped by --no-logs"
+    doctor_report_add_evidence "Logs capture" "skipped" docker compose logs
     return 0
   fi
 
   if ((${#DOCTOR_REPORT_COMPOSE_CMD[@]} == 0)); then
-    doctor_report_emit "- WARN Docker Compose command unavailable; logs skipped"
-    doctor_report_emit "### Command Evidence"
-    doctor_report_append_evidence "Logs capture" "skipped" docker compose logs
-    doctor_report_emit_blank
+    DOCTOR_REPORT_LOGS_STATUS="- WARN Docker Compose command unavailable; logs skipped"
+    doctor_report_add_evidence "Logs capture" "skipped" docker compose logs
     return 0
   fi
 
   if [[ ! -d "${DOCTOR_REPORT_APP_DIR}" ]]; then
-    doctor_report_emit "- FAIL APP_DIR missing; logs skipped"
-    doctor_report_emit "### Command Evidence"
-    doctor_report_append_evidence "Logs capture" "skipped" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" "${logs_args[@]}"
-    doctor_report_emit_blank
+    DOCTOR_REPORT_LOGS_STATUS="- FAIL APP_DIR missing; logs skipped"
+    doctor_report_add_evidence "Logs capture" "skipped" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" "${logs_args[@]}"
     return 0
   fi
 
@@ -362,73 +425,76 @@ doctor_report_append_logs() {
     logs_args+=("${DOCTOR_REPORT_SERVICE}")
   fi
 
-  if output="$(cd "${DOCTOR_REPORT_APP_DIR}" && "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" "${logs_args[@]}" 2>&1)"; then
+  if output="$(cd "${DOCTOR_REPORT_APP_DIR}" && "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" "${logs_args[@]}" 2>&1); then
     exit_code=0
   else
     exit_code=$?
   fi
+  DOCTOR_REPORT_LOGS_STATUS="- docker compose logs exit code: ${exit_code}"
+  DOCTOR_REPORT_LOGS_OUTPUT="${output}"
+  doctor_report_add_evidence "Logs capture" "${exit_code}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" "${logs_args[@]}"
+}
 
-  doctor_report_emit "### Command Evidence"
-  doctor_report_append_evidence "Logs capture" "${exit_code}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" "${logs_args[@]}"
-  doctor_report_append_block "${output}"
+doctor_report_append_command_evidence() {
+  local item=""
+
+  doctor_report_emit "## Command Evidence"
+  if ((${#DOCTOR_REPORT_EVIDENCE[@]} == 0)); then
+    doctor_report_emit "- No commands were captured"
+  else
+    for item in "${DOCTOR_REPORT_EVIDENCE[@]}"; do
+      doctor_report_emit "${item}"
+    done
+  fi
+  doctor_report_emit_blank
+}
+
+doctor_report_append_recent_logs() {
+  doctor_report_emit "## Recent Logs"
+  doctor_report_emit "${DOCTOR_REPORT_LOGS_STATUS}"
+  if [[ -n "${DOCTOR_REPORT_LOGS_OUTPUT}" ]]; then
+    doctor_report_append_block "${DOCTOR_REPORT_LOGS_OUTPUT}"
+  fi
+  doctor_report_emit_blank
+}
+
+doctor_report_append_recommendations() {
+  doctor_report_emit "## Recommendations"
+  if [[ ! -d "${DOCTOR_REPORT_APP_DIR}" ]]; then
+    doctor_report_emit "- Create or configure the SillyTavern deployment directory before lifecycle commands."
+  fi
+  if [[ ! -f "${DOCTOR_REPORT_COMPOSE_FILE}" ]]; then
+    doctor_report_emit "- Restore the expected Compose file before starting or updating the container."
+  fi
+  if [[ ! -f "${DOCTOR_REPORT_CONFIG_FILE}" ]]; then
+    doctor_report_emit "- Restore the expected config file before changing access settings."
+  fi
+  if ((${#DOCTOR_REPORT_COMPOSE_CMD[@]} == 0)); then
+    doctor_report_emit "- Install Docker Compose or make it visible in PATH."
+  fi
+  doctor_report_emit "- Share this report after reviewing the redacted contents."
   doctor_report_emit_blank
 }
 
 doctor_report_generate() {
-  local generated_at=""
-  generated_at="$(date '+%Y-%m-%d %H:%M:%S %z')"
-
   doctor_report_emit "# SillyTavern Doctor Report"
   doctor_report_emit_blank
-  doctor_report_emit "- Generated at: ${generated_at}"
-  doctor_report_emit "- Report schema: doctor_report_st core"
+  doctor_report_emit "- Report schema: doctor-report/v1"
+  doctor_report_emit "- This report is read-only; command failures are recorded as evidence."
   doctor_report_emit_blank
 
-  doctor_report_emit "## Summary"
-  if [[ -d "${DOCTOR_REPORT_APP_DIR}" ]]; then
-    doctor_report_emit "- PASS APP_DIR exists"
-  else
-    doctor_report_emit "- FAIL APP_DIR missing"
-  fi
-  doctor_report_file_status "Compose file" "${DOCTOR_REPORT_COMPOSE_FILE}"
-  doctor_report_file_status "Config file" "${DOCTOR_REPORT_CONFIG_FILE}"
-  if command -v docker >/dev/null 2>&1; then
-    doctor_report_emit "- PASS docker command found"
-  else
-    doctor_report_emit "- WARN docker command missing"
-  fi
-  if ((${#DOCTOR_REPORT_COMPOSE_CMD[@]} > 0)); then
-    doctor_report_emit "- PASS Docker Compose command found"
-  else
-    doctor_report_emit "- WARN Docker Compose command missing"
-  fi
-  doctor_report_emit_blank
-
-  doctor_report_emit "## Runtime Paths"
-  doctor_report_emit "- APP_DIR: ${DOCTOR_REPORT_APP_DIR}"
-  doctor_report_emit "- Compose file: ${DOCTOR_REPORT_COMPOSE_FILE}"
-  doctor_report_emit "- Config file: ${DOCTOR_REPORT_CONFIG_FILE}"
-  doctor_report_emit_blank
-
-  doctor_report_emit "## System Signals"
-  doctor_report_run_capture "uname" uname -a
-  if [[ -f /etc/os-release ]]; then
-    doctor_report_run_capture "os-release" awk -F= '/^(PRETTY_NAME|ID|VERSION_ID)=/{print}' /etc/os-release
-  else
-    doctor_report_emit "### os-release"
-    doctor_report_emit "- WARN /etc/os-release missing"
-    doctor_report_emit_blank
-  fi
-
-  doctor_report_emit "## File Signals"
-  doctor_report_append_file_metadata "APP_DIR" "${DOCTOR_REPORT_APP_DIR}"
-  doctor_report_append_file_metadata "Compose File" "${DOCTOR_REPORT_COMPOSE_FILE}"
-  doctor_report_append_file_metadata "Config File" "${DOCTOR_REPORT_CONFIG_FILE}"
-  doctor_report_append_config_signals
-
-  doctor_report_append_docker_signals
-  doctor_report_compose_validation
-  doctor_report_append_logs
+  doctor_report_append_summary
+  doctor_report_append_environment
+  doctor_report_append_toolkit_self_check
+  doctor_report_append_docker_compose
+  doctor_report_append_sillytavern_status
+  doctor_report_append_access_config
+  doctor_report_append_mirror_config
+  doctor_report_append_compose_validation
+  doctor_report_collect_recent_logs
+  doctor_report_append_command_evidence
+  doctor_report_append_recent_logs
+  doctor_report_append_recommendations
 }
 
 doctor_report_prepare_output() {
@@ -570,7 +636,7 @@ doctor_report_parse_args() {
   fi
 }
 
-doctor_report_st() {
+doctor_report_main() {
   local parse_status=0
   local restore_errexit=0
 
@@ -590,10 +656,16 @@ doctor_report_st() {
     return "${parse_status}"
   fi
 
+  DOCTOR_REPORT_SCRIPTS_DIR="${__st_scripts_dir:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)}"
   DOCTOR_REPORT_APP_DIR="${APP_DIR:-/data/docker/sillytavern}"
   DOCTOR_REPORT_COMPOSE_FILE="${ST_COMPOSE_FILE:-${DOCTOR_REPORT_APP_DIR}/docker-compose.yaml}"
   DOCTOR_REPORT_CONFIG_FILE="${ST_CONFIG_FILE:-${DOCTOR_REPORT_APP_DIR}/config/config.yaml}"
   DOCTOR_REPORT_SUDO=()
+  DOCTOR_REPORT_COMPOSE_CMD=()
+  DOCTOR_REPORT_EVIDENCE=()
+  DOCTOR_REPORT_LOGS_STATUS=""
+  DOCTOR_REPORT_LOGS_OUTPUT=""
+
   # shellcheck disable=SC2154
   if declare -p SUDO >/dev/null 2>&1; then
     DOCTOR_REPORT_SUDO=("${SUDO[@]}")
@@ -610,3 +682,11 @@ doctor_report_st() {
   ((restore_errexit == 0)) || set -e
   return "${parse_status}"
 }
+
+doctor_report_st() {
+  doctor_report_main "$@"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  doctor_report_main "$@"
+fi

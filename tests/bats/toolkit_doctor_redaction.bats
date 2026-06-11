@@ -22,7 +22,8 @@ assert_output_not_contains() {
   [[ "${output}" != *"${needle}"* ]]
 }
 
-@test "doctor redaction fixture covers auth headers cookies tokens and env credentials" {
+# doctor redaction fixture covers auth headers cookies tokens and env credentials
+function doctor_redaction_fixture_covers_auth_headers_and_credentials { #@test
   redact_fixture
 
   assert_status_eq 0
@@ -46,7 +47,8 @@ assert_output_not_contains() {
   done
 }
 
-@test "doctor redaction fixture covers URL userinfo and query token keys" {
+# doctor redaction fixture covers URL userinfo and query token keys
+function doctor_redaction_fixture_covers_url_userinfo_and_query_tokens { #@test
   redact_fixture
 
   assert_status_eq 0
@@ -66,7 +68,8 @@ assert_output_not_contains() {
   assert_output_not_contains "https://doctorUrlUserOnly@"
 }
 
-@test "doctor redaction fixture covers HOME USER APP_DIR and Windows profile paths" {
+# doctor redaction fixture covers HOME USER APP_DIR and Windows profile paths
+function doctor_redaction_fixture_covers_home_user_app_dir_and_windows_paths { #@test
   redact_fixture
 
   assert_status_eq 0
@@ -83,7 +86,8 @@ assert_output_not_contains() {
   done
 }
 
-@test "doctor report stdout applies the same redaction pipeline to captured logs" {
+# doctor report stdout applies the same redaction pipeline to captured logs
+function doctor_report_stdout_applies_redaction_pipeline_to_logs { #@test
   local stub_dir app_dir calls
   stub_dir="$(make_stub_dir)"
   app_dir="${BATS_TEST_TMPDIR}/st_app"

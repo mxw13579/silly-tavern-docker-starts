@@ -298,11 +298,12 @@ sillytavern_menu() {
     echo "  10. 修改访问模式/用户名密码/Watchtower"
     echo "  11. 恢复上一次访问配置"
     echo "  12. 工具箱自检"
-    echo "  13. 运行健康检查"
-    echo "  14. 显示部署信息"
+    echo "  13. 生成诊断报告"
+    echo "  14. 运行健康检查"
+    echo "  15. 显示部署信息"
     echo "   0. 返回主菜单"
     print_sep
-    read_menu_choice choice "请输入选项 [0-14]: "
+    read_menu_choice choice "请输入选项 [0-15]: "
     read_code=$?
     if ((read_code != 0)); then
       if ((read_code == 2)); then
@@ -325,8 +326,9 @@ sillytavern_menu() {
       10) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sillytavern.sh" change_access ;;
       11) run_action "${SCRIPT_DIR}/scripts/sillytavern.sh" restore_access ;;
       12) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sillytavern.sh" self-check ;;
-      13) run_action --pause-on-success bash "${SCRIPT_DIR}/scripts/health.sh" ;;
-      14) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sillytavern.sh" info ;;
+      13) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sillytavern.sh" doctor-report ;;
+      14) run_action --pause-on-success bash "${SCRIPT_DIR}/scripts/health.sh" ;;
+      15) run_action --pause-on-success "${SCRIPT_DIR}/scripts/sillytavern.sh" info ;;
       0) break ;;
       *) msg_error "无效选项"; pause_to_continue ;;
     esac
