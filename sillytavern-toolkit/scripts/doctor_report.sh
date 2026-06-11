@@ -61,7 +61,7 @@ doctor_report_escape_sed_pattern() {
   for ((index = 0; index < ${#value}; index++)); do
     char="${value:index:1}"
     case "${char}" in
-      '['|']'|'\\'|'.'|'^'|'$'|'*'|'+'|'?'|'{'|'}'|'('|')'|'|'|'#')
+      '['|']'|\\|'.'|'^'|'$'|'*'|'+'|'?'|'{'|'}'|'('|')'|'|'|'#')
         escaped+="\\${char}"
         ;;
       *)
@@ -95,6 +95,7 @@ doctor_redact_stream() {
     -e 's#((ST_AUTH_(USER|PASS))[[:space:]]*=[[:space:]]*).*#\1[REDACTED]#Ig'
     -e 's#([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@[:space:]]+@#\1[REDACTED]@#g'
     -e 's#([?&][^=[:space:]&]*(token|key|api_key|apikey)[^=[:space:]&]*=)[^&[:space:]]+#\1[REDACTED]#Ig'
+    -e 's#(^|[[:space:],{])(["'\'']?basicAuthUser[.]?(username|password)["'\'']?[[:space:]]*[:=][[:space:]]*).*#\1\2[REDACTED]#Ig'
     -e 's#(^|[[:space:],{])(["'\'']?(username|password|token|secret|api_key|apikey|api-key)["'\'']?[[:space:]]*[:=][[:space:]]*).*#\1\2[REDACTED]#Ig'
     -e 's#(^|[[:space:],{])(["'\'']?[[:alnum:]_.-]*(token|secret|api[_-]?key|apikey)[[:alnum:]_.-]*["'\'']?[[:space:]]*[:=][[:space:]]*).*#\1\2[REDACTED]#Ig'
     -e 's#(^|[[:space:]])(HOME|APP_DIR|USER|USERNAME|SUDO_USER)([[:space:]]*=[[:space:]]*).*#\1\2\3[REDACTED]#Ig'
@@ -192,6 +193,30 @@ doctor_report_add_skipped_evidence() {
   doctor_report_add_evidence "${purpose}" "skipped (${reason})" "not_captured" "not_captured" "not_applicable" "applied" "$@"
 }
 
+doctor_report_add_file_read_evidence() {
+  local purpose="$1"
+  local read_status="$2"
+  local exit_code="$3"
+  local stdout_status="$4"
+  local stderr_status="$5"
+  local truncation_status="$6"
+  local redaction_status="$7"
+  local command_text=""
+  shift 7
+
+  command_text="$(doctor_report_command_string "$@")"
+  DOCTOR_REPORT_EVIDENCE+=("- ${purpose}: attempted command=${command_text% }; read status=${read_status}; exit code=${exit_code}; stdout captured=${stdout_status}; stderr captured=${stderr_status}; truncation=${truncation_status}; redaction=${redaction_status}")
+}
+
+doctor_report_add_skipped_file_read_evidence() {
+  local purpose="$1"
+  local read_status="$2"
+  local reason="$3"
+  shift 3
+
+  doctor_report_add_file_read_evidence "${purpose}" "${read_status}" "skipped (${reason})" "not_captured" "not_captured" "not_applicable" "applied" "$@"
+}
+
 doctor_report_capture_status() {
   local content="$1"
 
@@ -241,6 +266,7 @@ doctor_report_capture_combined_command() {
   else
     exit_code=$?
   fi
+  DOCTOR_REPORT_LAST_EXIT_CODE="${exit_code}"
   printf -v "${output_var}" '%s' "${output}"
   doctor_report_add_evidence "${purpose}" "${exit_code}" "captured_combined" "captured_combined" "not_truncated" "applied" "$@"
 }
@@ -270,6 +296,7 @@ doctor_report_capture_command() {
 
   if (($# == 0)) || [[ -z "${1:-}" ]]; then
     printf -v "${output_var}" '%s' ''
+    DOCTOR_REPORT_LAST_EXIT_CODE="skipped"
     doctor_report_add_skipped_evidence "${purpose}" "empty command"
     return 0
   fi
@@ -289,6 +316,78 @@ doctor_report_capture_command() {
   else
     exit_code=$?
   fi
+  DOCTOR_REPORT_LAST_EXIT_CODE="${exit_code}"
+  stdout_output="$(cat -- "${stdout_file}" 2>/dev/null || true)"
+  stderr_output="$(cat -- "${stderr_file}" 2>/dev/null || true)"
+  rm -f -- "${stdout_file}" "${stderr_file}" 2>/dev/null || true
+
+  output="${stdout_output}"
+  if [[ -n "${stderr_output}" ]]; then
+    [[ -z "${output}" ]] || output+=$'\n'
+    output+="${stderr_output}"
+  fi
+
+  printf -v "${output_var}" '%s' "${output}"
+  doctor_report_add_evidence "${purpose}" "${exit_code}" "$(doctor_report_capture_status "${stdout_output}")" "$(doctor_report_capture_status "${stderr_output}")" "not_truncated" "applied" "$@"
+  return 0
+}
+
+doctor_report_capture_command_in_dir() {
+  local purpose="$1"
+  local output_var="$2"
+  local work_dir="$3"
+  local output=""
+  local stdout_output=""
+  local stderr_output=""
+  local stdout_file=""
+  local stderr_file=""
+  local exit_code=0
+  shift 3
+
+  if (($# == 0)) || [[ -z "${1:-}" ]]; then
+    printf -v "${output_var}" '%s' ''
+    DOCTOR_REPORT_LAST_EXIT_CODE="skipped"
+    doctor_report_add_skipped_evidence "${purpose}" "empty command"
+    return 0
+  fi
+
+  if [[ ! -d "${work_dir}" ]]; then
+    printf -v "${output_var}" '%s' ''
+    DOCTOR_REPORT_LAST_EXIT_CODE="skipped"
+    doctor_report_add_skipped_evidence "${purpose}" "working directory missing" "$@"
+    return 0
+  fi
+
+  if ! doctor_report_capture_temp_file stdout_file "stdout"; then
+    if output="$(cd "${work_dir}" && "$@" 2>&1)"; then
+      exit_code=0
+    else
+      exit_code=$?
+    fi
+    DOCTOR_REPORT_LAST_EXIT_CODE="${exit_code}"
+    printf -v "${output_var}" '%s' "${output}"
+    doctor_report_add_evidence "${purpose}" "${exit_code}" "captured_combined" "captured_combined" "not_truncated" "applied" "$@"
+    return 0
+  fi
+  if ! doctor_report_capture_temp_file stderr_file "stderr"; then
+    rm -f -- "${stdout_file}" 2>/dev/null || true
+    if output="$(cd "${work_dir}" && "$@" 2>&1)"; then
+      exit_code=0
+    else
+      exit_code=$?
+    fi
+    DOCTOR_REPORT_LAST_EXIT_CODE="${exit_code}"
+    printf -v "${output_var}" '%s' "${output}"
+    doctor_report_add_evidence "${purpose}" "${exit_code}" "captured_combined" "captured_combined" "not_truncated" "applied" "$@"
+    return 0
+  fi
+
+  if (cd "${work_dir}" && "$@" >"${stdout_file}" 2>"${stderr_file}"); then
+    exit_code=0
+  else
+    exit_code=$?
+  fi
+  DOCTOR_REPORT_LAST_EXIT_CODE="${exit_code}"
   stdout_output="$(cat -- "${stdout_file}" 2>/dev/null || true)"
   stderr_output="$(cat -- "${stderr_file}" 2>/dev/null || true)"
   rm -f -- "${stdout_file}" "${stderr_file}" 2>/dev/null || true
@@ -315,18 +414,93 @@ doctor_report_append_captured_command() {
   doctor_report_emit_blank
 }
 
-doctor_report_read_file_capture() {
-  local path="$1"
+doctor_report_append_captured_command_in_dir() {
+  local title="$1"
+  local work_dir="$2"
   local output=""
+  shift 2
 
-  if [[ -r "${path}" ]]; then
-    output="$(cat -- "${path}" 2>&1)"
-  elif declare -p DOCTOR_REPORT_SUDO >/dev/null 2>&1 && ((${#DOCTOR_REPORT_SUDO[@]} > 0)); then
-    output="$("${DOCTOR_REPORT_SUDO[@]}" cat -- "${path}" 2>&1)"
+  doctor_report_emit "### ${title}"
+  doctor_report_capture_command_in_dir "${title}" output "${work_dir}" "$@"
+  doctor_report_append_block "${output}"
+  doctor_report_emit_blank
+}
+
+doctor_report_read_file_capture() {
+  local purpose="$1"
+  local path="$2"
+  local output_var="${3:-}"
+  local output=""
+  local stdout_output=""
+  local stderr_output=""
+  local stdout_file=""
+  local stderr_file=""
+  local exit_code=0
+  local read_status="read"
+  local command_args=(cat -- "${path}")
+
+  if [[ ! -r "${path}" ]]; then
+    if [[ -e "${path}" ]] && declare -p DOCTOR_REPORT_SUDO >/dev/null 2>&1 && ((${#DOCTOR_REPORT_SUDO[@]} > 0)); then
+      command_args=("${DOCTOR_REPORT_SUDO[@]}" cat -- "${path}")
+      read_status="read_with_sudo"
+    else
+      if [[ -e "${path}" ]]; then
+        doctor_report_add_skipped_file_read_evidence "${purpose}" "unreadable" "not readable and sudo unavailable" cat -- "${path}"
+      else
+        doctor_report_add_skipped_file_read_evidence "${purpose}" "missing" "file missing" cat -- "${path}"
+      fi
+      output="file is not readable"
+      [[ -z "${output_var}" ]] || printf -v "${output_var}" '%s' "${output}"
+      printf '%s\n' "${output}"
+      return 0
+    fi
+  fi
+
+  if ! doctor_report_capture_temp_file stdout_file "stdout"; then
+    if output="$("${command_args[@]}" 2>&1)"; then
+      exit_code=0
+    else
+      exit_code=$?
+    fi
+    [[ -z "${output_var}" ]] || printf -v "${output_var}" '%s' "${output}"
+    doctor_report_add_file_read_evidence "${purpose}" "${read_status}" "${exit_code}" "captured_combined" "captured_combined" "not_truncated" "applied" "${command_args[@]}"
+    printf '%s\n' "${output}"
+    return 0
+  fi
+  if ! doctor_report_capture_temp_file stderr_file "stderr"; then
+    rm -f -- "${stdout_file}" 2>/dev/null || true
+    if output="$("${command_args[@]}" 2>&1)"; then
+      exit_code=0
+    else
+      exit_code=$?
+    fi
+    [[ -z "${output_var}" ]] || printf -v "${output_var}" '%s' "${output}"
+    doctor_report_add_file_read_evidence "${purpose}" "${read_status}" "${exit_code}" "captured_combined" "captured_combined" "not_truncated" "applied" "${command_args[@]}"
+    printf '%s\n' "${output}"
+    return 0
+  fi
+
+  if "${command_args[@]}" >"${stdout_file}" 2>"${stderr_file}"; then
+    exit_code=0
   else
+    exit_code=$?
+  fi
+  stdout_output="$(cat -- "${stdout_file}" 2>/dev/null || true)"
+  stderr_output="$(cat -- "${stderr_file}" 2>/dev/null || true)"
+  rm -f -- "${stdout_file}" "${stderr_file}" 2>/dev/null || true
+
+  output="${stdout_output}"
+  if [[ -n "${stderr_output}" ]]; then
+    [[ -z "${output}" ]] || output+=$'\n'
+    output+="${stderr_output}"
+  fi
+
+  if ((exit_code != 0)) && [[ -z "${output}" ]]; then
     output="file is not readable"
   fi
 
+  [[ -z "${output_var}" ]] || printf -v "${output_var}" '%s' "${output}"
+  doctor_report_add_file_read_evidence "${purpose}" "${read_status}" "${exit_code}" "$(doctor_report_capture_status "${stdout_output}")" "$(doctor_report_capture_status "${stderr_output}")" "not_truncated" "applied" "${command_args[@]}"
   printf '%s\n' "${output}"
   return 0
 }
@@ -351,29 +525,6 @@ doctor_report_detect_compose() {
   fi
 
   return 1
-}
-
-doctor_report_compose_ps() {
-  local app_dir="$1"
-  shift
-
-  (cd "${app_dir}" && "$@" ps)
-}
-
-doctor_report_compose_service_ps() {
-  local app_dir="$1"
-  local service="$2"
-  shift 2
-
-  (cd "${app_dir}" && "$@" ps "${service}")
-}
-
-doctor_report_compose_service_images() {
-  local app_dir="$1"
-  local service="$2"
-  shift 2
-
-  (cd "${app_dir}" && "$@" images "${service}")
 }
 
 doctor_report_file_status() {
@@ -461,6 +612,36 @@ doctor_report_append_toolkit_self_check() {
   fi
 }
 
+doctor_report_append_compose_service_detail() {
+  local service="$1"
+  local container_refs_output=""
+  local inspect_output=""
+  local container_refs=()
+  local ref=""
+
+  doctor_report_emit "### Compose Service Containers (${service})"
+  doctor_report_capture_command_in_dir "Compose Service Container IDs (${service})" container_refs_output "${DOCTOR_REPORT_APP_DIR}" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" ps -q "${service}"
+  doctor_report_append_block "${container_refs_output}"
+  doctor_report_emit_blank
+
+  while IFS= read -r ref; do
+    [[ -n "${ref}" ]] || continue
+    [[ "${ref}" == *[[:space:]]* ]] && continue
+    [[ "${ref}" == -* ]] && continue
+    container_refs+=("${ref}")
+  done <<<"${container_refs_output}"
+
+  doctor_report_emit "### Docker Inspect (${service})"
+  if ((${#container_refs[@]} == 0)); then
+    doctor_report_add_skipped_evidence "Docker Inspect (${service})" "no container ids from compose ps -q" docker inspect --format 'Name={{.Name}} State={{.State.Status}} RestartCount={{.RestartCount}} Image={{.Config.Image}}'
+    doctor_report_append_block ""
+  else
+    doctor_report_capture_command "Docker Inspect (${service})" inspect_output "${DOCTOR_REPORT_SUDO[@]}" docker inspect --format 'Name={{.Name}} State={{.State.Status}} RestartCount={{.RestartCount}} Image={{.Config.Image}}' "${container_refs[@]}"
+    doctor_report_append_block "${inspect_output}"
+  fi
+  doctor_report_emit_blank
+}
+
 doctor_report_append_docker_compose() {
   doctor_report_emit "## Docker Compose"
   if ! command -v docker >/dev/null 2>&1; then
@@ -473,10 +654,11 @@ doctor_report_append_docker_compose() {
   if ((${#DOCTOR_REPORT_COMPOSE_CMD[@]} > 0)); then
     doctor_report_append_captured_command "Compose Version" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" version
     if [[ -d "${DOCTOR_REPORT_APP_DIR}" ]]; then
-      doctor_report_append_captured_command "Compose PS" doctor_report_compose_ps "${DOCTOR_REPORT_APP_DIR}" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}"
+      doctor_report_append_captured_command_in_dir "Compose PS" "${DOCTOR_REPORT_APP_DIR}" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" ps
       if [[ "${DOCTOR_REPORT_ALL_SERVICES}" != "1" ]]; then
-        doctor_report_append_captured_command "Compose Service PS (${DOCTOR_REPORT_SERVICE})" doctor_report_compose_service_ps "${DOCTOR_REPORT_APP_DIR}" "${DOCTOR_REPORT_SERVICE}" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}"
-        doctor_report_append_captured_command "Compose Service Image (${DOCTOR_REPORT_SERVICE})" doctor_report_compose_service_images "${DOCTOR_REPORT_APP_DIR}" "${DOCTOR_REPORT_SERVICE}" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}"
+        doctor_report_append_captured_command_in_dir "Compose Service PS (${DOCTOR_REPORT_SERVICE})" "${DOCTOR_REPORT_APP_DIR}" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" ps "${DOCTOR_REPORT_SERVICE}"
+        doctor_report_append_captured_command_in_dir "Compose Service Image (${DOCTOR_REPORT_SERVICE})" "${DOCTOR_REPORT_APP_DIR}" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" images "${DOCTOR_REPORT_SERVICE}"
+        doctor_report_append_compose_service_detail "${DOCTOR_REPORT_SERVICE}"
       fi
     fi
   else
@@ -511,11 +693,12 @@ doctor_report_append_access_config() {
   doctor_report_emit "## Access Config"
   if [[ ! -f "${DOCTOR_REPORT_CONFIG_FILE}" ]]; then
     doctor_report_emit_status "WARN" "config file" "missing"
+    doctor_report_add_skipped_file_read_evidence "Access config read" "missing" "config file missing" cat -- "${DOCTOR_REPORT_CONFIG_FILE}"
     doctor_report_emit_blank
     return 0
   fi
 
-  config_output="$(doctor_report_read_file_capture "${DOCTOR_REPORT_CONFIG_FILE}")"
+  doctor_report_read_file_capture "Access config read" "${DOCTOR_REPORT_CONFIG_FILE}" config_output >/dev/null
   if grep -q 'basicAuthMode:[[:space:]]*true' <<<"${config_output}"; then
     doctor_report_emit "- basicAuthMode: true"
   elif grep -q 'basicAuthMode:[[:space:]]*false' <<<"${config_output}"; then
@@ -552,7 +735,7 @@ doctor_report_append_mirror_config() {
   doctor_report_emit "- Public IP probe: not run"
   if [[ -f /etc/docker/daemon.json ]]; then
     doctor_report_file_status "Docker daemon config" "/etc/docker/daemon.json"
-    mirrors_output="$(doctor_report_read_file_capture "/etc/docker/daemon.json")"
+    doctor_report_read_file_capture "Docker daemon config read" "/etc/docker/daemon.json" mirrors_output >/dev/null
     if grep -q '"registry-mirrors"' <<<"${mirrors_output}"; then
       doctor_report_emit "- Docker registry mirror configured: yes"
       doctor_report_emit "- Docker registry mirror source: /etc/docker/daemon.json"
@@ -571,12 +754,14 @@ doctor_report_append_mirror_config() {
     doctor_report_emit "- Docker registry mirror configured: unknown"
     doctor_report_emit "- Docker registry mirror source: missing /etc/docker/daemon.json"
     doctor_report_emit "- Docker registry mirror URL: unknown"
+    doctor_report_add_skipped_file_read_evidence "Docker daemon config read" "missing" "daemon.json missing" cat -- "/etc/docker/daemon.json"
   fi
   doctor_report_emit_blank
 }
 
 doctor_report_append_compose_validation() {
   local exit_code=0
+  local validation_output=""
 
   doctor_report_emit "## Compose Validation"
   if ((${#DOCTOR_REPORT_COMPOSE_CMD[@]} == 0)); then
@@ -600,19 +785,16 @@ doctor_report_append_compose_validation() {
     return 0
   fi
 
-  if (cd "${DOCTOR_REPORT_APP_DIR}" && "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" config -q >/dev/null 2>&1); then
-    exit_code=0
-  else
-    exit_code=$?
-  fi
+  doctor_report_capture_command_in_dir "Compose validation" validation_output "${DOCTOR_REPORT_APP_DIR}" "${DOCTOR_REPORT_SUDO[@]}" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" config -q
+  exit_code="${DOCTOR_REPORT_LAST_EXIT_CODE}"
 
   if [[ "${exit_code}" == "0" ]]; then
     doctor_report_emit_status "PASS" "docker compose config -q" "exit code ${exit_code}"
   else
     doctor_report_emit_status "FAIL" "docker compose config -q" "exit code ${exit_code}"
-    DOCTOR_REPORT_FATAL_FAILURE=1
   fi
-  doctor_report_add_evidence "Compose validation" "${exit_code}" "empty" "empty" "not_truncated" "applied" "${DOCTOR_REPORT_COMPOSE_CMD[@]}" config -q
+  doctor_report_emit "### docker compose config -q output"
+  doctor_report_append_block "${validation_output}"
   doctor_report_emit_blank
 }
 
@@ -958,6 +1140,7 @@ doctor_report_main() {
   DOCTOR_REPORT_LOGS_STATUS=""
   DOCTOR_REPORT_LOGS_OUTPUT=""
   DOCTOR_REPORT_TMP_FILE=""
+  DOCTOR_REPORT_LAST_EXIT_CODE=0
   doctor_report_reset_counts
 
   # shellcheck disable=SC2154

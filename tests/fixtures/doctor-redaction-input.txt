@@ -1,6 +1,12 @@
 basicAuthUser:
   username: "doctorBasicUserOne"
   password: "doctorBasicPassOne"
+basicAuthUser.username=doctorDottedBasicUserOne
+basicAuthUser.password: doctorDottedBasicPassOne
+"basicAuthUser.username": "doctorQuotedDottedBasicUserOne"
+'basicAuthUser.password' = 'doctorSingleQuotedDottedBasicPassOne'
+json_dotted_basic={"basicAuthUser.username":"doctorJsonDottedBasicUserOne","basicAuthUser.password":"doctorJsonDottedBasicPassOne"}
+json_nested_basic={"basicAuthUser":{"username":"doctorJsonNestedBasicUserOne","password":"doctorJsonNestedBasicPassOne"}}
 ST_AUTH_USER=doctorEnvUserOne
 ST_AUTH_PASS=doctorEnvPassOne
 Authorization: Bearer doctorBearerTokenOne

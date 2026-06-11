@@ -30,9 +30,11 @@ setup() {
     '  "compose version") printf "Docker Compose version v2.29.0\n"; exit 0 ;;' \
     '  "compose config -q") exit 0 ;;' \
     '  "compose config") printf "LEAK_FULL_COMPOSE_CONFIG doctorFullConfigSecret\n"; exit 0 ;;' \
+    '  "compose ps -q sillytavern") printf "doctor_sillytavern_container\n"; exit 0 ;;' \
+    '  "compose ps -q watchtower") printf "doctor_watchtower_container\n"; exit 0 ;;' \
     '  "compose ps"*) printf "NAME STATUS\nsillytavern running\nwatchtower running\n"; exit 0 ;;' \
     '  "compose logs"*) printf "stub log Authorization: Bearer doctorLogBearerOne token=doctorLogTokenOne\n"; exit 0 ;;' \
-    '  inspect*) printf "container image doctorImageTokenOne\n"; exit 0 ;;' \
+    '  inspect*) printf "Name=/doctor_container State=running RestartCount=0 Image=sillytavern:latest\n"; exit 0 ;;' \
     'esac' \
     'exit 0'
   write_exe "${DOCTOR_STUB_DIR}/curl" \
@@ -145,6 +147,10 @@ function doctor_report_stdout_prints_ordered_markdown_and_does_not_write_file { 
   assert_output_contains "sensitive values were redacted"
   assert_output_contains "Command Evidence"
   assert_output_contains "config -q"
+  assert_output_contains "Access config read"
+  assert_output_contains "read status=read"
+  assert_output_contains "stdout captured=captured"
+  assert_output_contains "redaction=applied"
   [[ "${output}" != *"doctorBasicPassOne"* ]]
   [[ "${output}" != *"doctorEnvPassOne"* ]]
   [[ "${output}" != *"doctorLogBearerOne"* ]]
@@ -200,8 +206,14 @@ function doctor_report_composes_logs_and_service_options_only { #@test
   grep -F -- "compose logs" "${DOCTOR_DOCKER_CALLS}" | grep -F -- "--tail 3"
   grep -F -- "compose logs" "${DOCTOR_DOCKER_CALLS}" | grep -F -- "--since 30m"
   grep -Fx -- "compose config -q" "${DOCTOR_DOCKER_CALLS}"
+  grep -Fx -- "compose ps -q watchtower" "${DOCTOR_DOCKER_CALLS}"
+  grep -F -- "inspect --format" "${DOCTOR_DOCKER_CALLS}" | grep -F -- "doctor_watchtower_container"
   ! grep -Fx -- "compose config" "${DOCTOR_DOCKER_CALLS}"
   ! grep -F -- "update" "${DOCTOR_DOCKER_CALLS}"
+  assert_output_contains "Docker Inspect (watchtower)"
+  assert_output_contains "attempted command=docker compose ps -q watchtower"
+  assert_output_contains "attempted command=docker inspect --format"
+  [[ "${output}" != *"attempted command=doctor_report_compose"* ]]
   [[ "${output}" != *"ipinfo.io"* ]]
   [[ "${output}" != *"print_final_info"* ]]
 }
@@ -216,4 +228,37 @@ function doctor_report_no_logs_prevents_log_collection_and_config_leakage { #@te
   ! grep -Fx -- "compose config" "${DOCTOR_DOCKER_CALLS}"
   [[ "${output}" != *"doctorFullConfigSecret"* ]]
   [[ "${output}" != *"doctorLogBearerOne"* ]]
+}
+
+# doctor-report captures docker compose config -q stdout stderr and exit code without full config
+function doctor_report_compose_validation_captures_redacted_streams_and_exit_code { #@test
+  write_exe "${DOCTOR_STUB_DIR}/docker" \
+    '#!/usr/bin/env bash' \
+    'printf "%s\n" "$*" >>"${DOCTOR_DOCKER_CALLS}"' \
+    'case "$*" in' \
+    '  "--version") printf "Docker version 27.0.0\n"; exit 0 ;;' \
+    '  "info") exit 0 ;;' \
+    '  "compose version") printf "Docker Compose version v2.29.0\n"; exit 0 ;;' \
+    '  "compose config -q") printf "compose stdout token=doctorComposeStdoutTokenOne\n"; printf "compose stderr basicAuthUser.password: doctorComposeStderrPassOne\n" >&2; exit 7 ;;' \
+    '  "compose config") printf "LEAK_FULL_COMPOSE_CONFIG doctorFullConfigSecret\n"; exit 0 ;;' \
+    '  "compose ps -q sillytavern") printf "doctor_sillytavern_container\n"; exit 0 ;;' \
+    '  "compose ps"*) printf "NAME STATUS\nsillytavern running\n"; exit 0 ;;' \
+    '  "compose logs"*) printf "stub log\n"; exit 0 ;;' \
+    '  inspect*) printf "Name=/doctor_container State=running RestartCount=0 Image=sillytavern:latest\n"; exit 0 ;;' \
+    'esac' \
+    'exit 0'
+
+  run_doctor doctor-report --stdout --no-logs
+
+  assert_status_eq 0
+  assert_output_contains "FAIL docker compose config -q: exit code 7"
+  assert_output_contains "### docker compose config -q output"
+  assert_output_contains "Compose validation: attempted command=docker compose config -q; exit code=7; stdout captured=captured; stderr captured=captured; truncation=not_truncated; redaction=applied"
+  assert_output_contains "compose stdout token=[REDACTED]"
+  assert_output_contains "compose stderr basicAuthUser.password: [REDACTED]"
+  [[ "${output}" != *"doctorComposeStdoutTokenOne"* ]]
+  [[ "${output}" != *"doctorComposeStderrPassOne"* ]]
+  [[ "${output}" != *"doctorFullConfigSecret"* ]]
+  grep -Fx -- "compose config -q" "${DOCTOR_DOCKER_CALLS}"
+  ! grep -Fx -- "compose config" "${DOCTOR_DOCKER_CALLS}"
 }

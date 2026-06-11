@@ -37,6 +37,10 @@ function doctor_redaction_fixture_covers_auth_headers_and_credentials { #@test
 
   for secret in \
     doctorBasicUserOne doctorBasicPassOne doctorEnvUserOne doctorEnvPassOne \
+    doctorDottedBasicUserOne doctorDottedBasicPassOne \
+    doctorQuotedDottedBasicUserOne doctorSingleQuotedDottedBasicPassOne \
+    doctorJsonDottedBasicUserOne doctorJsonDottedBasicPassOne \
+    doctorJsonNestedBasicUserOne doctorJsonNestedBasicPassOne \
     doctorBearerTokenOne doctorProxyTokenOne doctorCookieOne doctorSetCookieOne \
     doctorHeaderApiKeyOne doctorYamlTokenOne doctorShellSecretOne \
     doctorSnakeApiKeyOne doctorMixedTokenOne doctorJsonTokenOne \
