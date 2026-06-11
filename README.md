@@ -243,7 +243,7 @@ bash ~/sillytavern-toolkit/scripts/sillytavern.sh install
 
 ### 诊断报告
 
-`SillyTavern 应用管理 -> 生成诊断报告` 会生成一份 Markdown 诊断报告，便于求助或排查部署状态。报告包含工具箱文件状态、基础系统信息、Docker/Compose 可见性、SillyTavern 部署文件状态、访问配置摘要、Compose `config -q` 校验证据和最近日志。
+`SillyTavern 应用管理 -> 生成诊断报告` 会生成一份 Markdown 诊断报告，便于求助或排查部署状态。报告包含工具箱文件状态、基础系统信息、Docker/Compose 可见性、SillyTavern 部署文件状态、访问配置摘要、Compose `config -q` 校验证据和最近日志。Compose Validation 只记录 `docker compose config -q` 的退出状态，不输出完整渲染后的 Compose 配置。
 
 默认输出到当前用户家目录，文件名类似：
 

@@ -87,6 +87,10 @@ pre_common="$(
 if ! grep -E -- 'doctor-report|doctor' <<<"${pre_common}" >/dev/null; then
   fail "doctor-report/doctor must be handled before common.sh source-time checks"
 fi
+if ! grep -F -- 'doctor_report.sh' <<<"${pre_common}" >/dev/null ||
+  ! grep -F -- 'doctor_report_main "$@"' <<<"${pre_common}" >/dev/null; then
+  fail "doctor-report/doctor --help must use doctor_report.sh before common.sh is sourced"
+fi
 
 doctor_case="$(extract_case_block "${cli_file}" 'doctor-report|doctor')"
 if [[ -z "${doctor_case}" ]]; then
@@ -119,6 +123,22 @@ if [[ -f "${doctor_file}" ]]; then
     "doctor_report.sh must support --service"
   assert_file_contains "${doctor_file}" "--all-services" \
     "doctor_report.sh must support --all-services"
+  for section in \
+    "## Summary" \
+    "## Environment" \
+    "## Toolkit Self-check" \
+    "## Docker Compose" \
+    "## SillyTavern Status" \
+    "## Access Config" \
+    "## Mirror Config" \
+    "## Compose Validation" \
+    "## Command Evidence" \
+    "## Recent Logs" \
+    "## Recommendations"
+  do
+    assert_file_contains "${doctor_file}" "${section}" \
+      "doctor_report.sh must define required report section ${section}"
+  done
 
   assert_file_not_contains_re "${doctor_file}" 'health\.sh|scripts/health|bash[[:space:]].*health' \
     "doctor report must not embed raw health.sh output"

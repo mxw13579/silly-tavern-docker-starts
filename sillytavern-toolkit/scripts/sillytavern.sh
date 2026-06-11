@@ -23,6 +23,15 @@ if [[ "${1:-}" == "self-check" || "${1:-}" == "check" ]]; then
   exec bash "${__st_scripts_dir}/toolkit/self_check.sh" "$@"
 fi
 
+if [[ "${1:-}" == "doctor-report" || "${1:-}" == "doctor" ]] && [[ "${2:-}" == "--help" ]]; then
+  shift
+  # shellcheck source=sillytavern-toolkit/scripts/doctor_report.sh
+  # shellcheck disable=SC1091
+  . "${__st_scripts_dir}/doctor_report.sh"
+  doctor_report_main "$@"
+  exit $?
+fi
+
 if [[ "${1:-}" == "status" || "${1:-}" == "doctor-report" || "${1:-}" == "doctor" ]]; then
   export ST_TOOLKIT_REQUIRE_SUDO=0
   export ST_TOOLKIT_SKIP_COUNTRY=1
