@@ -29,6 +29,7 @@ install_from_proxy() {
     temp_dir="$(mktemp -d)"
     manifest_file=""
 
+    # shellcheck disable=SC2329
     cleanup_proxy_tmp() {
       rm -rf "${temp_dir}" 2>/dev/null || true
     }
@@ -109,6 +110,7 @@ install_from_git() {
     repo_git_url="https://github.com/${REPO_USER}/${REPO_NAME}.git"
     prepared_dir=""
 
+    # shellcheck disable=SC2329
     cleanup_git_tmp() {
       [[ -n "${temp_dir:-}" && -d "${temp_dir}" ]] && rm -rf "${temp_dir}"
     }
